@@ -24,7 +24,7 @@ The emulator GenServer also owns input and lifecycle:
 - `button/3` — presses/releases a button on the machine (cast, so input
   never blocks the frame loop).
 - `load_rom/2` — builds a fresh machine from another `.gb` file; used by
-  the ROM selector and the Reset button.
+  the ROM selector, uploaded ROMs, uploaded boot ROMs, and the Reset button.
 - `set_paused/2` — stops ticking (drops to a 100 ms idle poll).
 
 ## The LiveView (`lib/gb_emu_web/live/emulator_live.ex`)
@@ -55,10 +55,26 @@ Events flowing the other way:
 - `"select_rom"` / `"reset"` / `"toggle_pause"` — UI controls. ROM names
   are validated against the actual directory listing of `priv/roms/`, so
   the client can't request arbitrary file paths.
+- `"upload_roms"` — stores a legal game ROM and optional 256-byte boot ROM
+  through `GbEmu.UploadStore`, then starts or reloads the emulator from those
+  session-scoped paths.
 
 Adding a legal local `.gb` file to `priv/roms/` makes it appear in the selector
 after the app restarts (MBC0/MBC1/MBC5 carts supported). See [roms.md](roms.md)
 before adding any binary fixture to the repository.
+
+## Browser upload sessions
+
+`GbEmuWeb.UploadSession` creates a random id in the signed Phoenix session.
+`GbEmu.UploadStore` stores uploads below `GB_EMU_UPLOAD_ROOT` with `0700`
+directories and `0600` files. The LiveView and a tiny browser keepalive endpoint
+refresh the session's `.last_seen` marker while the page remains open in the
+same browser.
+
+`GB_EMU_UPLOAD_TTL_MS` is the deployment flag for the inactive-session window.
+It controls both the signed browser-session cookie max age and the server-side
+cleanup sweep. The default is `7200000` milliseconds (two hours), but downstream
+deployments can choose their own value.
 
 ## The canvas hook (colocated JS in `emulator_live.ex`)
 

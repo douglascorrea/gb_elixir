@@ -65,6 +65,12 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# LiveView validates upload accept filters against MIME's compile-time extension
+# table. Game Boy ROM extensions are intentionally treated as opaque binary data.
+config :mime, :types, %{
+  "application/octet-stream" => ["bin", "gb", "gbc", "rom"]
+}
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

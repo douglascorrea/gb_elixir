@@ -23,9 +23,9 @@ The repository does not include:
 
 ## Local ROM Use
 
-For local testing, place legal `.gb` files in `priv/roms/`. The app lists files
-from that directory and validates LiveView ROM selections against the server-side
-directory listing.
+For local testing, upload a legal `.gb` or `.gbc` file in the browser, or place
+legal `.gb` files in `priv/roms/`. The app lists files from that directory and
+validates LiveView ROM selections against the server-side directory listing.
 
 Good local inputs include:
 
@@ -35,6 +35,32 @@ Good local inputs include:
 
 Do not use ROMs for games you do not own or are not licensed to use. Laws vary
 by jurisdiction; this document is project policy, not legal advice.
+
+## Browser Upload Retention
+
+Browser uploads are stored server-side under a random signed browser-session id.
+The app keeps only fixed filenames for that session (`game.gb` and `boot.bin`)
+and refreshes a `.last_seen` marker while the same browser stays connected.
+
+`GB_EMU_UPLOAD_TTL_MS` controls how long uploaded files and the signed browser
+session remain valid after the browser stops reconnecting:
+
+```sh
+GB_EMU_UPLOAD_TTL_MS=7200000 mix phx.server
+```
+
+The repository default is two hours. That default is intended for this project's
+public deployment, but it is configurable. Developers operating their own copy
+can choose a different retention window, upload root, access-control layer, or
+disable public upload access according to their own legal and operational
+requirements.
+
+Use `GB_EMU_UPLOAD_ROOT` to place uploads outside the release directory or on a
+dedicated volume:
+
+```sh
+GB_EMU_UPLOAD_ROOT=/var/lib/gb_emu/uploads mix phx.server
+```
 
 ## Boot ROM Behavior
 

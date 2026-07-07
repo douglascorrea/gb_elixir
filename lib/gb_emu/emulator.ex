@@ -14,17 +14,23 @@ defmodule GbEmu.Emulator do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   def button(pid, btn, down), do: GenServer.cast(pid, {:button, btn, down})
-  def load_rom(pid, rom_path), do: GenServer.cast(pid, {:load_rom, rom_path})
+
+  def load_rom(pid, rom_path, boot_rom_path \\ nil) do
+    GenServer.cast(pid, {:load_rom, rom_path, boot_rom_path})
+  end
+
   def set_paused(pid, paused), do: GenServer.cast(pid, {:pause, paused})
 
   @impl true
   def init(opts) do
     subscriber = Keyword.fetch!(opts, :subscriber)
     rom_path = Keyword.fetch!(opts, :rom_path)
+    boot_rom_path = Keyword.get(opts, :boot_rom_path)
 
     state = %{
       subscriber: subscriber,
-      gb: new_machine(rom_path),
+      gb: new_machine(rom_path, boot_rom_path),
+      boot_rom_path: boot_rom_path,
       paused: false,
       next_frame_at: System.monotonic_time(:microsecond),
       fps_window_start: System.monotonic_time(:millisecond),
@@ -61,16 +67,16 @@ defmodule GbEmu.Emulator do
     {:noreply, %{state | gb: Machine.set_button(state.gb, btn, down)}}
   end
 
-  def handle_cast({:load_rom, rom_path}, state) do
-    {:noreply, %{state | gb: new_machine(rom_path)}}
+  def handle_cast({:load_rom, rom_path, boot_rom_path}, state) do
+    {:noreply, %{state | gb: new_machine(rom_path, boot_rom_path), boot_rom_path: boot_rom_path}}
   end
 
   def handle_cast({:pause, paused}, state) do
     {:noreply, %{state | paused: paused}}
   end
 
-  defp new_machine(rom_path) do
-    boot = BootRom.load!()
+  defp new_machine(rom_path, boot_rom_path) do
+    boot = BootRom.load!(boot_rom_path)
     rom = File.read!(rom_path)
     Machine.new(boot, rom)
   end

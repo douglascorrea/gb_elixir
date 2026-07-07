@@ -26,10 +26,14 @@ lib/gb_emu/
 ├── timer.ex             # DIV / TIMA
 ├── machine.ex           # CPU+PPU+Timer frame runner
 ├── emulator.ex          # Real-time emulator GenServer
-└── emulator_sessions.ex # Admission control and worker lifetime tracking
+├── emulator_sessions.ex # Admission control and worker lifetime tracking
+└── upload_store.ex      # Browser-session upload storage and TTL cleanup
 
 lib/gb_emu_web/
-└── live/emulator_live.ex # LiveView page + colocated canvas/keyboard JS hook
+├── controllers/upload_session_controller.ex # Upload keepalive endpoint
+├── live/emulator_live.ex                    # LiveView page + canvas hook
+├── session.ex                               # Runtime session cookie options
+└── upload_session.ex                        # Signed browser upload-session id
 
 priv/roms/                # Local-only user ROM directory
 test/gb_emu/              # Synthetic-fixture emulator tests

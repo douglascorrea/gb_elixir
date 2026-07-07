@@ -16,6 +16,12 @@
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 
+# Local/deployment environment files can contain secrets and deployment-specific
+# upload retention policies.
+.env
+.env.*
+!.env.example
+
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 

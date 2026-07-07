@@ -12,6 +12,7 @@ defmodule GbEmu.Application do
       {DNSCluster, query: Application.get_env(:gb_emu, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: GbEmu.PubSub},
       {DynamicSupervisor, strategy: :one_for_one, name: GbEmu.EmulatorSupervisor},
+      GbEmu.UploadStore,
       GbEmu.EmulatorSessions,
       # Start to serve requests, typically the last entry
       GbEmuWeb.Endpoint

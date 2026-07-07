@@ -29,13 +29,28 @@ defmodule GbEmu.BootRom do
   Loads a user-supplied boot ROM from `GB_EMU_BOOT_ROM`, or returns the open
   boot stub when the variable is unset.
   """
-  def load! do
+  def load!(path \\ nil)
+
+  def load!(path) when is_binary(path) and path != "" do
+    path
+    |> File.read!()
+    |> validate_boot_rom!()
+  end
+
+  def load!(_path) do
     case System.get_env("GB_EMU_BOOT_ROM") do
       path when is_binary(path) and path != "" ->
-        File.read!(path)
+        load!(path)
 
       _ ->
         minimal()
     end
+  end
+
+  defp validate_boot_rom!(boot) when byte_size(boot) == 0x100, do: boot
+
+  defp validate_boot_rom!(boot) do
+    raise ArgumentError,
+          "expected a 256-byte DMG boot ROM, got #{byte_size(boot)} bytes"
   end
 end

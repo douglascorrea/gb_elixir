@@ -4,6 +4,7 @@ defmodule GbEmuWeb.Router do
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
+    plug GbEmuWeb.UploadSession
     plug :fetch_live_flash
     plug :put_root_layout, html: {GbEmuWeb.Layouts, :root}
     plug :protect_from_forgery
@@ -17,6 +18,7 @@ defmodule GbEmuWeb.Router do
   scope "/", GbEmuWeb do
     pipe_through :browser
 
+    get "/upload-session/keepalive", UploadSessionController, :keepalive
     live "/", EmulatorLive
   end
 

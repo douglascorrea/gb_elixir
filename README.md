@@ -32,6 +32,8 @@ and related names are trademarks of their respective owners.
   local demos.
 - Built-in open boot stub, plus optional `GB_EMU_BOOT_ROM` support for a legally
   obtained local BIOS file.
+- Browser-session uploads for legal game ROMs and optional boot ROMs. Uploaded
+  files are kept server-side only for the configured inactive-session window.
 
 Audio is not implemented.
 
@@ -44,9 +46,9 @@ mix phx.server
 
 Open [http://localhost:4000](http://localhost:4000).
 
-The public repository intentionally starts without ROMs. Add a legal `.gb` file
-to `priv/roms/` for local use, then restart the server. Supported cartridges are
-MBC0, MBC1, and MBC5.
+The public repository intentionally starts without ROMs. Upload a legal `.gb` or
+`.gbc` file from the browser, or add a legal `.gb` file to `priv/roms/` for
+local use and restart the server. Supported cartridges are MBC0, MBC1, and MBC5.
 
 Controls:
 
@@ -65,7 +67,7 @@ boot area and jumps to the cartridge entrypoint at `$0100`. It does not perform
 the original startup logo scroll, audio chime, or cartridge header check.
 
 If you have a legally obtained DMG boot ROM dump, point the app at your local
-file:
+file, or upload it in the browser for the current signed browser session:
 
 ```sh
 GB_EMU_BOOT_ROM=/absolute/path/to/dmg_boot.bin mix phx.server
@@ -83,9 +85,21 @@ limits concurrent emulator sessions with `GB_EMU_MAX_SESSIONS`:
 GB_EMU_MAX_SESSIONS=4 mix phx.server
 ```
 
-The default is `4`. Keep public deployments behind authentication, upstream rate
-limits, or another access-control layer; this project is designed first as a
-local study app.
+The default is `4`.
+
+Uploaded game ROMs and boot ROMs are scoped to a signed browser session. The
+same `GB_EMU_UPLOAD_TTL_MS` value controls the signed session cookie lifetime
+and server-side upload cleanup window:
+
+```sh
+GB_EMU_UPLOAD_TTL_MS=7200000 mix phx.server
+```
+
+The project default is `7200000` milliseconds, or two hours. That is a
+deployment policy, not a source-code limitation: downstream developers can set a
+shorter or longer value for their own private or public deployments. Public
+operators should still use authentication, upstream rate limits, storage quotas,
+or another deployment-specific guard.
 
 ## Architecture
 
