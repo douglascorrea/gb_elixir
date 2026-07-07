@@ -20,9 +20,28 @@ if System.get_env("PHX_SERVER") do
   config :gb_emu, GbEmuWeb.Endpoint, server: true
 end
 
-config :gb_emu, GbEmuWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+port = String.to_integer(System.get_env("PORT", "4000"))
+
+config :gb_emu, GbEmuWeb.Endpoint, http: [port: port]
 
 if config_env() == :prod do
+  parse_ipv4 = fn value ->
+    parts =
+      value
+      |> String.split(".")
+      |> Enum.map(fn part ->
+        case Integer.parse(part) do
+          {octet, ""} when octet in 0..255 -> octet
+          _ -> raise "BIND_IP must be an IPv4 address, got: #{inspect(value)}"
+        end
+      end)
+
+    case parts do
+      [a, b, c, d] -> {a, b, c, d}
+      _ -> raise "BIND_IP must be an IPv4 address, got: #{inspect(value)}"
+    end
+  end
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
@@ -39,14 +58,15 @@ if config_env() == :prod do
 
   config :gb_emu, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  bind_ip = parse_ipv4.(System.get_env("BIND_IP", "127.0.0.1"))
+
   config :gb_emu, GbEmuWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://bandit.hexdocs.pm/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
+      # Bind to loopback by default so Nginx remains the public edge.
+      # Set BIND_IP=0.0.0.0 for container or direct public binding.
+      ip: bind_ip,
+      port: port
     ],
     secret_key_base: secret_key_base
 
