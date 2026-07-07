@@ -78,6 +78,7 @@ defmodule GbEmu.MixProject do
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind gb_emu", "esbuild gb_emu"],
       "assets.deploy": [
+        "compile",
         "tailwind gb_emu --minify",
         "esbuild gb_emu --minify",
         "phx.digest"
