@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an emulator, UI, or documentation improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What capability or workflow should improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What would a good solution look like?
+    validations:
+      required: true
+  - type: checkboxes
+    id: artifact_check
+    attributes:
+      label: Artifact policy
+      options:
+        - label: This request does not require distributing commercial ROMs or proprietary BIOS files.
+          required: true
