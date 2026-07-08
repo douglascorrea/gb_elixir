@@ -69,6 +69,9 @@ defmodule GbEmu.GB do
     ppu_dot: 0,
     ppu_mode: 2,
     serial_out: [],
+    # Remaining T-cycles until an internal-clock serial transfer finishes.
+    # nil = idle; external-clock transfers stay pending forever (no partner).
+    serial_cycles: nil,
     window_line: 0,
     fb_lines: %{},
     frame: nil,
@@ -91,7 +94,7 @@ defmodule GbEmu.GB do
 
     rom_banks = max(div(byte_size(rom), 0x4000), 2)
 
-    %__MODULE__{
+    gb = %__MODULE__{
       rom: rom,
       boot: boot,
       mbc: mbc,
@@ -103,6 +106,14 @@ defmodule GbEmu.GB do
       extram: :atomics.new(0x8000, signed: false),
       io_misc: :atomics.new(0x80, signed: false)
     }
+
+    # The open boot stub skips the real BIOS logo/checksum path. Commercial
+    # games (Tetris, etc.) expect the post-boot register state at $0100.
+    if GbEmu.BootRom.minimal?(boot) do
+      Map.merge(gb, GbEmu.BootRom.post_boot_state())
+    else
+      gb
+    end
   end
 
   @doc """

@@ -27,12 +27,14 @@ defmodule GbEmu.MachineTest do
     gb = new_machine()
 
     assert byte_size(BootRom.minimal()) == 0x100
-    assert gb.boot_enabled
+    # Open stub skips the real BIOS and starts already handed off.
+    refute gb.boot_enabled
+    assert gb.pc == 0x100
+    assert gb.lcdc == 0x91
 
     {gb, frame} = Machine.run_frame(gb)
 
     refute gb.boot_enabled
-    assert gb.pc == 0x100
     assert byte_size(frame) == 160 * 144
   end
 
@@ -46,5 +48,10 @@ defmodule GbEmu.MachineTest do
 
     gb = Machine.set_button(gb, :start, false)
     assert gb.btns == 0x00
+
+    gb = Machine.set_button(gb, :a, true)
+    gb = Machine.release_all_buttons(gb)
+    assert gb.btns == 0x00
+    assert gb.dpad == 0x00
   end
 end

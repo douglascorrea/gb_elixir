@@ -72,6 +72,14 @@ defmodule GbEmuWeb.EmulatorLive do
     {:noreply, socket}
   end
 
+  def handle_info({:pad_release, button}, socket) do
+    if socket.assigns.emulator do
+      Emulator.button(socket.assigns.emulator, button, false)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_info(:upload_session_keepalive, socket) do
     UploadStore.touch_session(socket.assigns.upload_session_id)
     schedule_upload_session_keepalive()
@@ -81,9 +89,52 @@ defmodule GbEmuWeb.EmulatorLive do
 
   @impl true
   def handle_event("joypad", %{"button" => btn, "down" => down}, socket)
-      when btn in @buttons and is_boolean(down) do
+      when btn in @buttons do
+    case normalize_bool(down) do
+      {:ok, pressed} ->
+        if socket.assigns.emulator do
+          Emulator.button(socket.assigns.emulator, String.to_existing_atom(btn), pressed)
+        end
+
+        {:noreply, socket}
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("joypad", %{"release_all" => true}, socket) do
     if socket.assigns.emulator do
-      Emulator.button(socket.assigns.emulator, String.to_existing_atom(btn), down)
+      Emulator.release_all_buttons(socket.assigns.emulator)
+    end
+
+    {:noreply, socket}
+  end
+
+  # On-screen Start/Select: short pulse so Cursor/webview can't leave them held.
+  def handle_event("pad_tap", %{"button" => btn}, socket) when btn in ~w(start select a b) do
+    if socket.assigns.emulator do
+      atom = String.to_existing_atom(btn)
+      Emulator.button(socket.assigns.emulator, atom, true)
+      Process.send_after(self(), {:pad_release, atom}, 180)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("pad_down", %{"button" => btn}, socket)
+      when btn in ~w(up down left right a b) do
+    if socket.assigns.emulator do
+      Emulator.button(socket.assigns.emulator, String.to_existing_atom(btn), true)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("pad_up", %{"button" => btn}, socket)
+      when btn in ~w(up down left right a b start select) do
+    if socket.assigns.emulator do
+      Emulator.button(socket.assigns.emulator, String.to_existing_atom(btn), false)
     end
 
     {:noreply, socket}
@@ -323,6 +374,12 @@ defmodule GbEmuWeb.EmulatorLive do
   defp upload_error_to_string(:too_many_files), do: "Upload only one file at a time."
   defp upload_error_to_string(:not_accepted), do: "File type is not accepted."
 
+  defp normalize_bool(true), do: {:ok, true}
+  defp normalize_bool(false), do: {:ok, false}
+  defp normalize_bool("true"), do: {:ok, true}
+  defp normalize_bool("false"), do: {:ok, false}
+  defp normalize_bool(_), do: :error
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -368,6 +425,7 @@ defmodule GbEmuWeb.EmulatorLive do
           id="rom-upload-form"
           phx-change="validate_uploads"
           phx-submit="upload_roms"
+          onkeydown="if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); }"
           class="mt-6 w-full max-w-xl rounded border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-200"
         >
           <div class="grid gap-4 sm:grid-cols-2">
@@ -485,7 +543,11 @@ defmodule GbEmuWeb.EmulatorLive do
           :if={@roms != [] or @current_rom_path}
           class="mt-6 flex flex-wrap items-center justify-center gap-3"
         >
-          <form id="rom-select-form" phx-change="select_rom">
+          <form
+            id="rom-select-form"
+            phx-change="select_rom"
+            onkeydown="if (event.key === 'Enter') { event.preventDefault(); }"
+          >
             <.input
               :if={@roms != []}
               id="rom-select"
@@ -513,13 +575,103 @@ defmodule GbEmuWeb.EmulatorLive do
           <span class="text-xs text-slate-400 tabular-nums w-20">{@fps} fps</span>
         </div>
 
-        <div class="mt-6 grid grid-cols-2 gap-x-10 gap-y-1 text-xs text-slate-400">
+        <div id="gb-controls" class="mt-6 flex flex-wrap items-start justify-center gap-8">
+          <div class="grid grid-cols-3 gap-1 place-items-center">
+            <div></div>
+            <button
+              id="pad-up"
+              type="button"
+              phx-mousedown="pad_down"
+              phx-mouseup="pad_up"
+              phx-value-button="up"
+              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+            >
+              ↑
+            </button>
+            <div></div>
+            <button
+              id="pad-left"
+              type="button"
+              phx-mousedown="pad_down"
+              phx-mouseup="pad_up"
+              phx-value-button="left"
+              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+            >
+              ←
+            </button>
+            <button
+              id="pad-down"
+              type="button"
+              phx-mousedown="pad_down"
+              phx-mouseup="pad_up"
+              phx-value-button="down"
+              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+            >
+              ↓
+            </button>
+            <button
+              id="pad-right"
+              type="button"
+              phx-mousedown="pad_down"
+              phx-mouseup="pad_up"
+              phx-value-button="right"
+              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+            >
+              →
+            </button>
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <div class="flex gap-2">
+              <button
+                id="pad-b"
+                type="button"
+                phx-click="pad_tap"
+                phx-value-button="b"
+                class="h-11 min-w-14 rounded-full bg-slate-700 px-4 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+              >
+                B
+              </button>
+              <button
+                id="pad-a"
+                type="button"
+                phx-click="pad_tap"
+                phx-value-button="a"
+                class="h-11 min-w-14 rounded-full bg-slate-700 px-4 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+              >
+                A
+              </button>
+            </div>
+            <div class="flex gap-2">
+              <button
+                id="pad-select"
+                type="button"
+                phx-click="pad_tap"
+                phx-value-button="select"
+                class="h-9 min-w-16 rounded bg-slate-800 px-3 text-xs font-semibold uppercase tracking-wide text-slate-200 active:bg-lime-400 active:text-slate-900"
+              >
+                Select
+              </button>
+              <button
+                id="pad-start"
+                type="button"
+                phx-click="pad_tap"
+                phx-value-button="start"
+                class="h-9 min-w-16 rounded bg-lime-300 px-3 text-xs font-semibold uppercase tracking-wide text-slate-950 active:bg-lime-200"
+              >
+                Start
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 gap-x-10 gap-y-1 text-xs text-slate-400">
           <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">←→↑↓</kbd> D-pad</span>
           <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Z</kbd> A</span>
           <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Enter</kbd> Start</span>
           <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">X</kbd> B</span>
           <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Shift</kbd> Select</span>
-          <span class="text-slate-500">Click the screen first for keyboard focus</span>
+          <span class="text-slate-500">Use the green Start button if Enter glitches</span>
         </div>
 
         <script :type={Phoenix.LiveView.ColocatedHook} name=".GameBoy">
@@ -529,6 +681,13 @@ defmodule GbEmuWeb.EmulatorLive do
             [0x34, 0x68, 0x56],
             [0x08, 0x18, 0x20],
           ]
+
+          // Start/Select are pulsed: Cursor/webview often drops keyup for Enter,
+          // which leaves Start held and makes games like Tetris flip screens.
+          const PULSE_MS = {
+            start: 180,
+            select: 180,
+          }
 
           const KEYMAP = {
             ArrowUp: "up",
@@ -549,6 +708,8 @@ defmodule GbEmuWeb.EmulatorLive do
               const canvas = this.el.querySelector("canvas")
               this.ctx = canvas.getContext("2d")
               this.imageData = this.ctx.createImageData(160, 144)
+              this.pressed = new Set()
+              this.pulseTimers = {}
               // opaque alpha once
               const px = this.imageData.data
               for (let i = 3; i < px.length; i += 4) px[i] = 255
@@ -564,23 +725,85 @@ defmodule GbEmuWeb.EmulatorLive do
               this.keepSessionAlive()
               this.keepaliveTimer = window.setInterval(this.keepSessionAlive, 5 * 60 * 1000)
 
+              this.typingTarget = (el) => {
+                if (!el) return false
+                const tag = el.tagName
+                return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable
+              }
+
+              this.setButton = (btn, down) => {
+                if (down) {
+                  if (this.pressed.has(btn)) return
+                  this.pressed.add(btn)
+                } else {
+                  if (!this.pressed.has(btn)) return
+                  this.pressed.delete(btn)
+                }
+                this.pushEvent("joypad", {button: btn, down})
+              }
+
+              this.clearPulse = (btn) => {
+                if (this.pulseTimers[btn]) {
+                  window.clearTimeout(this.pulseTimers[btn])
+                  delete this.pulseTimers[btn]
+                }
+              }
+
+              this.pulseButton = (btn) => {
+                this.clearPulse(btn)
+                this.setButton(btn, true)
+                this.pulseTimers[btn] = window.setTimeout(() => {
+                  this.setButton(btn, false)
+                  delete this.pulseTimers[btn]
+                }, PULSE_MS[btn] || 180)
+              }
+
+              this.releaseAll = () => {
+                Object.keys(this.pulseTimers).forEach((btn) => this.clearPulse(btn))
+                if (this.pressed.size === 0) return
+                this.pressed.clear()
+                this.pushEvent("joypad", {release_all: true})
+              }
+
               this.onKey = (e, down) => {
                 const btn = KEYMAP[e.key]
                 if (!btn) return
+                if (this.typingTarget(e.target)) return
+
                 e.preventDefault()
+                e.stopPropagation()
                 if (e.repeat) return
-                this.pushEvent("joypad", {button: btn, down})
+
+                if (PULSE_MS[btn]) {
+                  if (down) this.pulseButton(btn)
+                  return
+                }
+
+                this.setButton(btn, down)
               }
+
               this.keydown = (e) => this.onKey(e, true)
               this.keyup = (e) => this.onKey(e, false)
-              window.addEventListener("keydown", this.keydown)
-              window.addEventListener("keyup", this.keyup)
+              this.onBlur = () => this.releaseAll()
+              this.onVisibility = () => {
+                if (document.hidden) this.releaseAll()
+              }
+
+              window.addEventListener("keydown", this.keydown, true)
+              window.addEventListener("keyup", this.keyup, true)
+              window.addEventListener("blur", this.onBlur)
+              document.addEventListener("visibilitychange", this.onVisibility)
+              this.el.addEventListener("pointerdown", () => this.el.focus())
+              this.el.focus()
             },
 
             destroyed() {
+              this.releaseAll()
               window.clearInterval(this.keepaliveTimer)
-              window.removeEventListener("keydown", this.keydown)
-              window.removeEventListener("keyup", this.keyup)
+              window.removeEventListener("keydown", this.keydown, true)
+              window.removeEventListener("keyup", this.keyup, true)
+              window.removeEventListener("blur", this.onBlur)
+              document.removeEventListener("visibilitychange", this.onVisibility)
             },
 
             draw(b64) {

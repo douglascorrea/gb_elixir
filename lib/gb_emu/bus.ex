@@ -168,18 +168,23 @@ defmodule GbEmu.Bus do
         %{gb | joyp_select: v &&& 0x30}
 
       0xFF02 ->
-        # Serial: no link partner connected. A started transfer completes
-        # immediately: capture the outgoing byte (test ROMs print here),
-        # receive 0xFF (idle line), clear the busy bit and raise the
-        # serial interrupt.
-        if (v &&& 0x80) != 0 do
-          byte = :atomics.get(gb.io_misc, 0x01 + 1)
-          :atomics.put(gb.io_misc, 0x01 + 1, 0xFF)
-          :atomics.put(gb.io_misc, 0x02 + 1, v &&& 0x7F)
-          %{gb | serial_out: [byte | gb.serial_out], if_: gb.if_ ||| 0x08}
-        else
-          :atomics.put(gb.io_misc, 0x02 + 1, v)
-          gb
+        # Serial transfer control.
+        # Bit 7 = start, bit 0 = clock source (1 = internal, 0 = external).
+        # With no link partner, external-clock transfers must stay pending —
+        # completing them instantly breaks Tetris title-screen Start handling.
+        # Internal-clock transfers (blargg tests, some games) complete after
+        # ~4096 T-cycles via Machine.step_serial/2.
+        :atomics.put(gb.io_misc, 0x02 + 1, v)
+
+        cond do
+          (v &&& 0x80) == 0 ->
+            %{gb | serial_cycles: nil}
+
+          (v &&& 0x01) != 0 ->
+            %{gb | serial_cycles: 4096}
+
+          true ->
+            %{gb | serial_cycles: nil}
         end
 
       0xFF04 ->
@@ -198,13 +203,29 @@ defmodule GbEmu.Bus do
         %{gb | if_: v &&& 0x1F}
 
       0xFF40 ->
+        was_on = (gb.lcdc &&& 0x80) != 0
+        now_on = (v &&& 0x80) != 0
         gb = %{gb | lcdc: v}
 
-        if (v &&& 0x80) == 0 do
-          # LCD off: reset scanline state
-          %{gb | ly: 0, ppu_dot: 0, ppu_mode: 0, stat: gb.stat &&& 0xFC, window_line: 0}
-        else
-          gb
+        cond do
+          was_on and not now_on ->
+            # LCD off: freeze the last frame and reset scanline state
+            %{gb | ly: 0, ppu_dot: 0, ppu_mode: 0, stat: gb.stat &&& 0xFC, window_line: 0}
+
+          not was_on and now_on ->
+            # LCD on: start a fresh frame from OAM scan (mode 2)
+            %{
+              gb
+              | ly: 0,
+                ppu_dot: 0,
+                ppu_mode: 2,
+                stat: (gb.stat &&& 0xFC) ||| 2,
+                window_line: 0,
+                fb_lines: %{}
+            }
+
+          true ->
+            gb
         end
 
       0xFF41 ->

@@ -14,6 +14,7 @@ defmodule GbEmu.Emulator do
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   def button(pid, btn, down), do: GenServer.cast(pid, {:button, btn, down})
+  def release_all_buttons(pid), do: GenServer.cast(pid, :release_all_buttons)
 
   def load_rom(pid, rom_path, boot_rom_path \\ nil) do
     GenServer.cast(pid, {:load_rom, rom_path, boot_rom_path})
@@ -52,6 +53,7 @@ defmodule GbEmu.Emulator do
     {gb, frame} = Machine.run_frame(state.gb)
 
     state = update_fps(state)
+    maybe_log_state(state, gb)
     send(state.subscriber, {:gb_frame, frame, state.fps})
 
     now = System.monotonic_time(:microsecond)
@@ -62,9 +64,40 @@ defmodule GbEmu.Emulator do
     {:noreply, %{state | gb: gb, next_frame_at: next_at}}
   end
 
+  defp maybe_log_state(state, gb) do
+    if Application.get_env(:gb_emu, :debug_input, false) and rem(gb.frame_count, 60) == 0 do
+      require Logger
+
+      # FFE1 / FF80 / FF81 live in HRAM (not IO)
+      e1 = :atomics.get(gb.hram, 0xFFE1 - 0xFF80 + 1)
+      keys = :atomics.get(gb.hram, 0xFF80 - 0xFF80 + 1)
+      newk = :atomics.get(gb.hram, 0xFF81 - 0xFF80 + 1)
+      sc = :atomics.get(gb.io_misc, 0x02 + 1)
+
+      Logger.info(
+        "frame=#{gb.frame_count} pc=#{Integer.to_string(gb.pc, 16)} lcdc=#{Integer.to_string(gb.lcdc, 16)} " <>
+          "E1=#{Integer.to_string(e1, 16)} keys=#{Integer.to_string(keys, 16)} new=#{Integer.to_string(newk, 16)} " <>
+          "btns=#{gb.btns} sc=#{Integer.to_string(sc, 16)} " <>
+          "serial_cycles=#{inspect(gb.serial_cycles)} fps=#{state.fps}"
+      )
+    end
+  end
+
   @impl true
   def handle_cast({:button, btn, down}, state) do
+    if Application.get_env(:gb_emu, :debug_input, false) do
+      require Logger
+
+      Logger.info(
+        "joypad #{btn} #{if down, do: "DOWN", else: "UP"} btns=#{state.gb.btns} dpad=#{state.gb.dpad}"
+      )
+    end
+
     {:noreply, %{state | gb: Machine.set_button(state.gb, btn, down)}}
+  end
+
+  def handle_cast(:release_all_buttons, state) do
+    {:noreply, %{state | gb: Machine.release_all_buttons(state.gb)}}
   end
 
   def handle_cast({:load_rom, rom_path, boot_rom_path}, state) do

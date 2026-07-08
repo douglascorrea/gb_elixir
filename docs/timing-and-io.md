@@ -39,30 +39,31 @@ A game reads the pad by writing `$20` (select d-pad), reading, writing `$10`
 `GbEmu.Machine.set_button/3`, which also raises the joypad interrupt (bit 4) on
 press.
 
-## The Serial Port Stub
+## The serial port (link cable)
 
 `$FF01` (SB, data) and `$FF02` (SC, control) form the link-cable serial port.
-The emulator has no link partner, but it cannot just ignore these registers.
+Bit 7 of SC starts a transfer; bit 0 selects the clock source
+(1 = internal, 0 = external / waiting for a partner).
 
-Some homebrew and test ROMs poll serial hardware every frame, including inside
-"wait for input" loops:
+**Internal clock** (blargg tests, some homebrew): the transfer completes after
+~4096 T-cycles. `Machine.step_serial/2` counts those cycles, writes `$FF` into
+SB (idle line), clears SC bit 7, and raises the serial interrupt. Outgoing
+bytes are appended to `gb.serial_out` so tests can read results like
+"Passed all tests".
 
-```c
-static uint8_t serial_exchange(void) {
-    SB_REG = 0x00u;
-    SC_REG = SIOF_CLOCK_INT | SIOF_XFER_START;   // write 0x81
-    while (timeout && (SC_REG & SIOF_XFER_START)) timeout--;
-    if (!timeout) { SC_REG = 0x00u; return 0xFFu; }
-    return SB_REG;
-}
-```
+**External clock** (Tetris title screen): with no link partner the transfer must
+stay pending forever. An earlier stub completed *every* transfer instantly,
+which made Tetris think a 2-player handshake had finished and skip its Start
+handler — Start appeared broken and the title screen could look like it was
+"blinking". Completing only internal-clock transfers fixed that.
 
-The stub therefore models "transfer started, nobody on the other end": writing
-`$FF02` with bit 7 set completes the transfer immediately. SB is loaded with
-`$FF` (an idle link line reads all 1s), SC bit 7 is cleared, and serial
-interrupt bit 3 is raised. Programs that use this pattern translate `$FF` to "no
-key" and move on.
+## Debug logging
 
-The captured serial bytes also double as a debug channel: many public test ROMs
-print their results over serial, and `gb.serial_out` is where those bytes are
-recorded for local debugging.
+In `config/dev.exs`, `config :gb_emu, debug_input: true` logs:
+
+- every joypad press/release
+- once per second: `frame`, `pc`, `lcdc`, Tetris-style `E1` state, key HRAM,
+  button bits, and serial state
+
+Watch the Phoenix terminal while pressing Start to confirm input is reaching
+the emulator.

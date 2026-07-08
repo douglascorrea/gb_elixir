@@ -60,6 +60,9 @@ config :gb_emu, GbEmuWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :gb_emu, dev_routes: true
 
+# Log joypad presses and periodic emulator state (useful for ROM debugging)
+config :gb_emu, debug_input: true
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
