@@ -375,7 +375,14 @@ defmodule GbEmuWeb.EmulatorLive do
               <label for={@uploads.rom.ref} class="mb-2 block font-semibold text-lime-300">
                 Game ROM
               </label>
-              <.live_file_input upload={@uploads.rom} class="block w-full text-xs text-slate-300" />
+              <.live_file_input upload={@uploads.rom} class="sr-only" />
+              <label
+                id="game-rom-upload-button"
+                for={@uploads.rom.ref}
+                class="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded border border-lime-300/60 bg-lime-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-200"
+              >
+                <.icon name="hero-arrow-up-tray" class="size-4" /> Upload game ROM
+              </label>
               <div :for={entry <- @uploads.rom.entries} class="mt-2 text-xs text-slate-400">
                 <div class="flex items-center justify-between gap-2">
                   <span>{entry.client_name}</span>
@@ -405,10 +412,14 @@ defmodule GbEmuWeb.EmulatorLive do
               <label for={@uploads.boot_rom.ref} class="mb-2 block font-semibold text-lime-300">
                 Boot ROM
               </label>
-              <.live_file_input
-                upload={@uploads.boot_rom}
-                class="block w-full text-xs text-slate-300"
-              />
+              <.live_file_input upload={@uploads.boot_rom} class="sr-only" />
+              <label
+                id="boot-rom-upload-button"
+                for={@uploads.boot_rom.ref}
+                class="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded border border-lime-300/60 bg-lime-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-200"
+              >
+                <.icon name="hero-arrow-up-tray" class="size-4" /> Upload boot ROM
+              </label>
               <div :for={entry <- @uploads.boot_rom.entries} class="mt-2 text-xs text-slate-400">
                 <div class="flex items-center justify-between gap-2">
                   <span>{entry.client_name}</span>

@@ -7,6 +7,8 @@ defmodule GbEmuWeb.EmulatorLiveTest do
 
     assert html =~ "Game ROM"
     assert html =~ "Boot ROM"
+    assert html =~ "Upload game ROM"
+    assert html =~ "Upload boot ROM"
     assert html =~ "Load uploads"
     assert html =~ "deleted after 2 hours"
   end
