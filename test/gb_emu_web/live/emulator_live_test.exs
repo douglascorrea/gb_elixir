@@ -93,7 +93,8 @@ defmodule GbEmuWeb.EmulatorLiveTest do
         }
       ])
 
-    assert render_upload(upload, "debug-timeout.gb") =~ "100%"
+    render_upload(upload, "debug-timeout.gb")
+    assert has_element?(view, "#rom-upload-form progress[value='100']")
     view |> form("#rom-upload-form") |> render_submit()
 
     assert has_element?(view, "#debug-attach:not([disabled])")
