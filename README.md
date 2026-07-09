@@ -28,6 +28,8 @@ and related names are trademarks of their respective owners.
   and frame assembly.
 - Phoenix LiveView canvas front end with keyboard input and per-session frame
   streaming.
+- Integrated instruction-boundary debugger with CPU/PPU registers, a navigable
+  memory window, bounded traces, and links to the Elixir interpreter source.
 - Supervised emulator workers with a configurable concurrency limit for safer
   local demos.
 - Built-in open boot stub, plus optional `GB_EMU_BOOT_ROM` support for a legally
@@ -60,14 +62,22 @@ Controls:
 | `Enter` | Start |
 | `Shift` | Select |
 
+To study the running machine, choose **Attach** in the debugger sidebar. Attach
+pauses without resetting; **Boot** then cold-restarts the active boot source at
+`$0000`. See the [integrated debugger guide](docs/debugger.md) for every control,
+memory color, source link, and execution bound.
+
 ## ROMs and BIOS
 
-By default GbEmu uses a tiny open boot stub that writes `$FF50` to unmap the
-boot area and jumps to the cartridge entrypoint at `$0100`. It does not perform
-the original startup logo scroll, audio chime, or cartridge header check.
+By default GbEmu uses a tiny open boot stub, but normal play takes a fast
+compatibility path: it applies post-boot register/I/O state directly and starts
+at `$0100` without executing the stub. Debugger **Boot** exposes the real open
+stub sequence from `$0000` for instruction-by-instruction study. The open path
+does not reproduce the proprietary logo scroll, audio chime, or header checks.
 
 If you have a legally obtained DMG boot ROM dump, point the app at your local
-file, or upload it in the browser for the current signed browser session:
+256-byte file, or upload it for the current signed browser session. File boot
+sources remain mapped at `$0000` and execute their own bytes:
 
 ```sh
 GB_EMU_BOOT_ROM=/absolute/path/to/dmg_boot.bin mix phx.server
@@ -109,11 +119,12 @@ browser canvas + keyboard hook
 GbEmuWeb.EmulatorLive        LiveView per viewer
 GbEmu.EmulatorSessions       admission control and worker lifetime tracking
 GbEmu.Emulator               real-time GenServer, one machine per viewer
-GbEmu.Machine                one video frame = 70,224 T-cycles
-├── GbEmu.CPU                SM83 interpreter
-├── GbEmu.PPU                scanline renderer
-├── GbEmu.Timer              DIV/TIMA
-└── GbEmu.Bus                memory map, MBCs, IO, boot overlay, DMA
+├── GbEmu.Debugger           explicit paused boundary execution + trace projection
+└── GbEmu.Machine            one video frame = 70,224 T-cycles
+    ├── GbEmu.CPU            SM83 interpreter
+    ├── GbEmu.PPU            scanline renderer
+    ├── GbEmu.Timer          DIV/TIMA
+    └── GbEmu.Bus            memory map, MBCs, IO, boot overlay, DMA
 ```
 
 State lives in a single `GbEmu.GB` struct threaded through each emulation step.
@@ -123,8 +134,9 @@ in `:persistent_term`.
 
 ## Documentation
 
-Start with [docs/README.md](docs/README.md) for a guided tour of the emulator,
-then dive into the CPU, memory bus, PPU, timing/IO, and LiveView front end.
+Start with [docs/README.md](docs/README.md) for a guided tour or
+[docs/debugger.md](docs/debugger.md) to follow an instruction from assembly,
+through CPU/memory/PPU execution, to its exact Elixir source lines.
 
 ## Tests
 

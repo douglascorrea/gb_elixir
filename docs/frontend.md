@@ -8,16 +8,17 @@ enforces the `GB_EMU_MAX_SESSIONS` concurrency limit before a new emulator is
 created. The loop:
 
 ```
-:tick -> Machine.run_frame(gb)
-      -> send(subscriber, {:gb_frame, frame, fps})
-      -> Process.send_after(self(), :tick, delay)
+{:tick, token} -> Machine.run_frame(gb)
+               -> send(subscriber, {:gb_frame, frame, fps})
+               -> Process.send_after(self(), {:tick, next_token}, delay)
 ```
 
 Pacing uses an absolute deadline (`next_frame_at + 16_742 µs` — the real
 59.73 Hz frame period) rather than a fixed sleep, so timer jitter and
 variable frame cost don't accumulate drift. If emulation falls more than
 5 frames behind, the deadline is clamped forward instead of bursting to
-catch up.
+catch up. Timer tokens make already-delivered stale messages harmless when
+pause, attach, resume, or reload replaces the active timer.
 
 The emulator GenServer also owns input and lifecycle:
 
@@ -25,7 +26,15 @@ The emulator GenServer also owns input and lifecycle:
   never blocks the frame loop).
 - `load_rom/2` — builds a fresh machine from another `.gb` file; used by
   the ROM selector, uploaded ROMs, uploaded boot ROMs, and the Reset button.
-- `set_paused/2` — stops ticking (drops to a 100 ms idle poll).
+- `set_paused/2` — cancels ticking while paused; it cannot resume a debugger-
+  attached machine.
+- `debug_attach/2` — synchronously cancels pacing and returns a projected
+  snapshot of the authoritative machine without resetting it.
+- `debug_command/3` — runs a bounded instruction/PPU/scanline/frame/restart
+  command while attached.
+- `debug_memory/2` — reads another projected 256-byte memory window without
+  advancing the machine.
+- `debug_resume/1` — detaches tracing and starts exactly one paced timer chain.
 
 ## The LiveView (`lib/gb_emu_web/live/emulator_live.ex`)
 
@@ -58,10 +67,19 @@ Events flowing the other way:
 - `"upload_roms"` — stores a legal game ROM and optional 256-byte boot ROM
   through `GbEmu.UploadStore`, then starts or reloads the emulator from those
   session-scoped paths.
+- `"debug_attach"`, `"debug_step"`, `"debug_step_10"`, `"debug_ppu"`,
+  `"debug_scanline"`, `"debug_frame"`, `"debug_restart"`, `"debug_memory"`,
+  and `"debug_resume"` — explicit synchronous debugger actions. Normal frame
+  messages never build debugger snapshots.
 
 Adding a legal local `.gb` file to `priv/roms/` makes it appear in the selector
 after the app restarts (MBC0/MBC1/MBC5 carts supported). See [roms.md](roms.md)
 before adding any binary fixture to the repository.
+
+Page Reset, ROM selection, and uploads use the normal machine-construction path:
+the minimal source fast-starts at `$0100`, while a file source executes from
+`$0000`. Debugger `"debug_restart"` is deliberately different: it rebuilds the
+active combination in cold mode at `$0000` and remains paused for stepping.
 
 ## Browser upload sessions
 
@@ -91,10 +109,31 @@ Drawing path per frame:
 3. `putImageData` onto the 160x144 canvas; CSS scales it up with
    `image-rendering: pixelated` for crisp fat pixels.
 
-Keyboard handling maps arrows/Z/X/Enter/Shift to Game Boy buttons and
-pushes `keydown`/`keyup` separately, so holding a direction works exactly
-like holding a real D-pad. `e.repeat` events are dropped — the Game Boy
-itself has no key repeat; games implement their own.
+Keyboard handling maps arrows/Z/X to held Game Boy buttons and pushes their
+`keydown`/`keyup` state separately, so holding a direction works like holding a
+real D-pad. Start (`Enter`) and Select (`Shift`, with `Backspace` as a fallback)
+are 180 ms pulses initiated on keydown; this prevents a dropped keyup from
+leaving either button stuck in embedded browser/webview environments.
+`e.repeat` events are dropped — the Game Boy itself has no key repeat; games
+implement their own.
+
+## The debugger sidebar
+
+`GbEmuWeb.DebuggerComponents` renders a stateless sibling `<aside>` outside the
+ignored `#gameboy` canvas container. It is sticky and independently scrollable
+on desktop, then stacks below the console at narrower widths. The memory panel
+is the largest surface; trace rows use a LiveView stream reconciled from the
+authoritative, bounded snapshot history.
+
+The aside carries `data-debug-ui`. The capture-phase keyboard handler checks
+`target.closest("[data-debug-ui]")` before mapping a key, so arrows and Enter
+used in memory fields or debugger buttons cannot become D-pad or Start input.
+
+Instruction, trace, and memory-activity links come from compile-time
+`GbEmu.Debugger.SourceMap` metadata. The client receives repository-relative
+paths, positive line numbers, and GitHub URLs, not local absolute paths. See
+[debugger.md](debugger.md) for control semantics, colors, source-link versioning,
+and history limits.
 
 ## Latency, honestly
 

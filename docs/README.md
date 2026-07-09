@@ -6,6 +6,7 @@ front end that draws frames and forwards key presses.
 
 | Document | What it covers |
 | --- | --- |
+| [debugger.md](debugger.md) | Attach/boot workflow, execution controls, memory colors, source links, and bounds |
 | [roms.md](roms.md) | Legal ROM/BIOS policy, local setup, and redistribution rules |
 | [architecture.md](architecture.md) | Process model, data flow, and one frame's journey from CPU to canvas |
 | [cpu.md](cpu.md) | The SM83 CPU interpreter: dispatch, flags, interrupts, HALT |
@@ -24,12 +25,15 @@ lib/gb_emu/
 ├── bus.ex               # Memory map, MBCs, IO registers
 ├── ppu.ex               # LCD state machine + scanline renderer
 ├── timer.ex             # DIV / TIMA
-├── machine.ex           # CPU+PPU+Timer frame runner
+├── machine.ex           # CPU+PPU+Timer+serial frame runner
+├── debugger.ex          # Bounded instruction-boundary commands + traces
+├── debugger/            # Disassembly, snapshots, source map, trace capture
 ├── emulator.ex          # Real-time emulator GenServer
 ├── emulator_sessions.ex # Admission control and worker lifetime tracking
 └── upload_store.ex      # Browser-session upload storage and TTL cleanup
 
 lib/gb_emu_web/
+├── components/debugger_components.ex      # Stateless debugger workbench
 ├── controllers/upload_session_controller.ex # Upload keepalive endpoint
 ├── live/emulator_live.ex                    # LiveView page + canvas hook
 ├── session.ex                               # Runtime session cookie options
@@ -41,11 +45,14 @@ test/gb_emu/              # Synthetic-fixture emulator tests
 
 ## Quick Orientation
 
-If you read only three things, read these:
+If you read only four things, read these:
 
-1. `GbEmu.Machine.run_frame/1` - the heartbeat. It runs exactly 70,224
-   T-cycles by looping `CPU.step -> PPU.step -> Timer.step`.
-2. `GbEmu.Bus.read8/2` and `write8/3` - every byte the CPU touches goes through
+1. [debugger.md](debugger.md) - how to pause the live machine, cold-start either
+   boot source, and follow assembly through memory/PPU work to Elixir lines.
+2. `GbEmu.Machine.step_instruction/1` and `run_frame/1` - the shared heartbeat.
+   One boundary advances CPU, PPU, timer, and serial state; normal play repeats
+   it for exactly 70,224 T-cycles per frame.
+3. `GbEmu.Bus.read8/2` and `write8/3` - every byte the CPU touches goes through
    here; this is where the Game Boy hardware map is encoded.
-3. `GbEmuWeb.EmulatorLive` plus `GbEmu.EmulatorSessions` - how public sessions
+4. `GbEmuWeb.EmulatorLive` plus `GbEmu.EmulatorSessions` - how public sessions
    are admitted, how frames leave the server, and how key presses come back in.

@@ -2,9 +2,10 @@
 
 ## The one-sentence version
 
-Every browser visitor gets their own Game Boy: a GenServer that executes
-70,224 emulated clock cycles ~60 times a second and streams the resulting
-160x144 frames to a LiveView, which pushes them onto a `<canvas>`.
+Each admitted browser session with a loaded ROM gets its own Game Boy: a
+GenServer that executes 70,224 emulated clock cycles ~60 times a second and
+streams the resulting 160x144 frames to a LiveView, which pushes them onto a
+`<canvas>`. Sessions without a ROM keep the emulator controls disabled.
 
 ## Process model
 
@@ -15,17 +16,23 @@ Browser tab
 │  LiveView websocket
 ▼
 GbEmuWeb.EmulatorLive          one LiveView process per visitor
-│  push_event("frame", ...)  ▲   handle_event("joypad", ...)
+│  push_event("frame", ...)  ▲   handle_event("joypad" / "debug_*", ...)
 ▼                            │
-GbEmu.Emulator                 one GenServer per visitor (linked to the LV)
+GbEmu.EmulatorSessions         admission + subscriber/worker monitors
+▼
+GbEmu.EmulatorSupervisor       DynamicSupervisor
+▼
+GbEmu.Emulator                 one authoritative GenServer per visitor
 │  self-ticks with Process.send_after
 ▼
-GbEmu.Machine.run_frame/1      pure function: (gb) -> {gb, frame_binary}
+GbEmu.Machine.run_frame/1      state transition: (gb) -> {gb, frame_binary}
 ```
 
-There is no global emulator: `EmulatorLive.mount/3` starts a linked
-`GbEmu.Emulator`, so when the visitor leaves, the LiveView dies and takes
-the emulator with it. Two tabs = two independent Game Boys.
+There is no global machine state. `EmulatorLive.mount/3` asks
+`GbEmu.EmulatorSessions` to admit and start a worker under the dynamic
+supervisor. The session manager monitors both the LiveView subscriber and the
+worker; when the visitor leaves it terminates that worker. Two tabs = two
+independent Game Boys, subject to the configured admission limit.
 
 ## The machine state: one struct, threaded everywhere
 
@@ -51,7 +58,8 @@ real-time budget.
 
 ## Anatomy of one frame
 
-`GbEmu.Machine.run_frame/1` loops until 70,224 T-cycles have elapsed
+`GbEmu.Machine.run_frame/1` loops over `Machine.step_instruction/1` until 70,224
+T-cycles have elapsed
 (the exact duration of one DMG video frame at 4.194304 MHz):
 
 1. `CPU.step/1` services a pending interrupt or executes one instruction,
@@ -62,25 +70,71 @@ real-time budget.
    23,040-byte frame and raises the VBlank interrupt.
 3. `Timer.step/2` advances DIV/TIMA and raises the timer interrupt on
    overflow.
+4. The serial state advances by the same T-cycle count.
 
 The finished frame is a binary of 2-bit shades (one byte per pixel,
 values 0–3). Color is applied client-side, which keeps the payload small.
 
 ## Real-time pacing
 
-`GbEmu.Emulator` ticks itself with `Process.send_after`. It tracks an
-absolute `next_frame_at` deadline in microseconds (16,742 µs per frame —
-the true 59.73 Hz frame duration) instead of sleeping a fixed interval, so
-scheduling jitter doesn't accumulate drift. If the emulator falls behind
-by more than 5 frames the deadline is clamped rather than trying to catch
-up with a burst.
+`GbEmu.Emulator` ticks itself with `Process.send_after`. Each timer has a unique
+token, and replacing/cancelling a timer invalidates stale messages so pause,
+debug attach, resume, and ROM reload cannot create duplicate frame chains. The
+emulator tracks an absolute `next_frame_at` deadline in microseconds (16,742 µs
+per frame — the true 59.73 Hz frame duration) instead of sleeping a fixed
+interval, so scheduling jitter doesn't accumulate drift. If it falls behind by
+more than 5 frames, the deadline is clamped rather than trying to catch up with
+a burst.
 
-## Boot sequence
+## Debugger execution
 
-On reset the machine starts with `pc = 0x0000` and the 256-byte DMG boot
-ROM region mapped over addresses `$0000-$00FF`. The public repository uses
-`GbEmu.BootRom.minimal/0`, an open stub that writes `$01` to `$FF50` and jumps
-to the cartridge entrypoint at `$0100`.
+The integrated debugger does not run a second emulator. `Attach` makes a
+synchronous call to the authoritative `GbEmu.Emulator` GenServer, cancels its
+frame timer, and snapshots the same `%GbEmu.GB{}` that was driving the canvas.
+All debugger commands execute at that serialization point.
+
+`GbEmu.Debugger.step/1` wraps the same `Machine.step_instruction/1` primitive
+used by normal frames. A boundary is one interpreted instruction, interrupt
+service, or idle-HALT step; the PPU, timer, and serial port advance by the
+returned T-cycle count. PPU/scanline/frame controls repeat whole boundaries
+until their condition changes, subject to instruction ceilings and finite
+deadlines.
+
+Trace capture is enabled only during explicit debugger commands. A projected
+snapshot contains CPU/peripheral summaries, one aligned 256-byte memory window,
+the latest trace, and at most 200 history rows. LiveView never receives the
+machine struct or its mutable `:atomics` references. See
+[debugger.md](debugger.md) for the UI workflow and source mapping.
+
+## Boot paths
+
+`GbEmu.BootRom` provides either the built-in open stub (`:minimal`) or a lawful
+user-supplied 256-byte file (`:file`). The normal-load and debugger-restart paths
+are intentionally different.
+
+### Normal load and page Reset
+
+With the minimal source, normal play uses `boot_mode: :fast`. It does **not**
+execute the stub: `GbEmu.GB.new/3` applies the documented post-boot register and
+I/O compatibility state directly, disables the overlay, and begins at `$0100`.
+
+With a file source, the fast shortcut does not apply. The file remains mapped
+over `$0000-$00FF`, the machine begins at `$0000`, and its own bytes execute.
+
+### Debugger Boot
+
+The debugger's **Boot** command reconstructs the active game ROM and boot source
+with `boot_mode: :cold`, clears history, and stops at `$0000`. The open stub can
+therefore be followed as:
+
+1. `$0000`: `JP $00FC`
+2. `$00FC`: `LD A,$01`
+3. `$00FE`: `LDH ($FF50),A`
+
+The third instruction unmaps the overlay and hands off at `$0100`. For the open
+stub only, the `$FF50` write also applies post-boot compatibility state while
+preserving the current PC and memory. A file source instead follows its own
+boot sequence without that minimal-stub handoff.
 
 Users who have a legally obtained DMG boot ROM can set `GB_EMU_BOOT_ROM` to a
 local file. With a real boot ROM, the emulated startup path is the hardware path:
@@ -95,5 +149,5 @@ local file. With a real boot ROM, the emulated startup path is the hardware path
    (`GbEmu.Bus` flips `boot_enabled` to `false`) and execution falls
    through to the cartridge entry point at `$0100`.
 
-Without `GB_EMU_BOOT_ROM`, the emulator intentionally skips those proprietary
+Without a file source, the project never ships or reconstructs those proprietary
 startup bytes. See [roms.md](roms.md) for the project policy.
