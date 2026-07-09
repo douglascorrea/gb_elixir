@@ -297,6 +297,35 @@ defmodule GbEmu.DebuggerTest do
     assert Enum.count(trace.events, &(&1.type == :boot_handoff)) == 1
   end
 
+  test "a 256-byte file-style boot traces from 0000 without the open-stub handoff" do
+    file_boot = put_byte(BootRom.minimal(), 0x80, 0x42)
+    refute BootRom.minimal?(file_boot)
+
+    gb = Machine.new(file_boot, test_rom())
+
+    assert gb.pc == 0x0000
+    assert gb.boot_enabled
+    assert gb.boot_kind == :file
+
+    {gb, first_trace} = Debugger.step(gb)
+
+    assert first_trace.pc_before == 0x0000
+    assert first_trace.pc_after == 0x00FC
+    assert first_trace.mnemonic == "JP $00FC"
+    refute Enum.any?(first_trace.events, &(&1.type == :boot_handoff))
+
+    {gb, _second_trace} = Debugger.step(gb)
+    {gb, handoff_trace} = Debugger.step(gb)
+
+    assert [%{compatibility?: false}] =
+             Enum.filter(handoff_trace.events, &(&1.type == :boot_handoff))
+
+    refute gb.boot_enabled
+    assert gb.pc == 0x0100
+    assert gb.sp == 0x0000
+    assert gb.lcdc == 0x00
+  end
+
   test "snapshot clamps and aligns a 256-byte memory window without trace reads" do
     newest_trace = %{
       memory: [
