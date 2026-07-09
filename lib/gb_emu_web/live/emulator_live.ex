@@ -31,6 +31,10 @@ defmodule GbEmuWeb.EmulatorLive do
         paused: false,
         emulator: nil,
         emulator_status: :idle,
+        debug_attached: false,
+        debug_snapshot: nil,
+        debug_error: nil,
+        debug_memory_form: to_form(%{"address" => "0000"}, as: :memory),
         max_sessions: EmulatorSessions.max_sessions(),
         upload_retention_label: format_duration(UploadStore.ttl_ms()),
         page_title: "Game Boy on the BEAM"
@@ -45,6 +49,7 @@ defmodule GbEmuWeb.EmulatorLive do
         max_entries: 1,
         max_file_size: @max_boot_rom_size
       )
+      |> stream(:debug_traces, [], dom_id: &"debug-traces-#{Map.fetch!(&1, :id)}")
 
     socket =
       if connected?(socket) do
@@ -148,11 +153,13 @@ defmodule GbEmuWeb.EmulatorLive do
       Emulator.load_rom(socket.assigns.emulator, rom_path, socket.assigns.boot_rom_path)
 
       {:noreply,
-       assign(socket,
+       socket
+       |> assign(
          current_rom: rom,
          current_rom_path: rom_path,
          paused: false
-       )}
+       )
+       |> reset_debugger()}
     else
       {:noreply, socket}
     end
@@ -167,7 +174,11 @@ defmodule GbEmuWeb.EmulatorLive do
       )
     end
 
-    {:noreply, assign(socket, paused: false)}
+    {:noreply, reset_debugger(socket)}
+  end
+
+  def handle_event("toggle_pause", _params, %{assigns: %{debug_attached: true}} = socket) do
+    {:noreply, socket}
   end
 
   def handle_event("toggle_pause", _params, socket) do
@@ -178,6 +189,62 @@ defmodule GbEmuWeb.EmulatorLive do
     end
 
     {:noreply, assign(socket, paused: paused)}
+  end
+
+  def handle_event("debug_attach", _params, socket) do
+    with pid when is_pid(pid) <- socket.assigns.emulator do
+      pid
+      |> Emulator.debug_attach(current_memory_start(socket))
+      |> apply_debug_result(socket, :attach)
+    else
+      _ -> {:noreply, assign(socket, debug_error: "Load a ROM before attaching the debugger.")}
+    end
+  end
+
+  def handle_event("debug_step", _params, socket),
+    do: run_debug_command(socket, :instruction)
+
+  def handle_event("debug_step_10", _params, socket),
+    do: run_debug_command(socket, {:steps, 10})
+
+  def handle_event("debug_ppu", _params, socket), do: run_debug_command(socket, :ppu_event)
+  def handle_event("debug_scanline", _params, socket), do: run_debug_command(socket, :scanline)
+  def handle_event("debug_frame", _params, socket), do: run_debug_command(socket, :frame)
+
+  def handle_event("debug_restart", _params, socket),
+    do: run_debug_command(socket, :restart, :reset)
+
+  def handle_event("debug_memory", %{"memory" => %{"address" => address}}, socket) do
+    case parse_debug_address(address) do
+      {:ok, memory_start} ->
+        with pid when is_pid(pid) <- socket.assigns.emulator do
+          pid
+          |> Emulator.debug_memory(memory_start)
+          |> apply_debug_result(socket, :memory)
+        else
+          _ -> {:noreply, assign(socket, debug_error: "The emulator is not available.")}
+        end
+
+      :error ->
+        {:noreply,
+         socket
+         |> assign(debug_error: "Enter a hexadecimal address between 0000 and FFFF.")
+         |> assign(debug_memory_form: to_form(%{"address" => address}, as: :memory))}
+    end
+  end
+
+  def handle_event("debug_memory", _params, socket) do
+    {:noreply, assign(socket, debug_error: "Enter a hexadecimal address between 0000 and FFFF.")}
+  end
+
+  def handle_event("debug_resume", _params, socket) do
+    with pid when is_pid(pid) <- socket.assigns.emulator,
+         :ok <- Emulator.debug_resume(pid) do
+      {:noreply, assign(socket, debug_attached: false, debug_error: nil, paused: false)}
+    else
+      nil -> {:noreply, put_debug_error(socket, :emulator_unavailable)}
+      {:error, reason} -> {:noreply, put_debug_error(socket, reason)}
+    end
   end
 
   def handle_event("validate_uploads", _params, socket) do
@@ -288,6 +355,7 @@ defmodule GbEmuWeb.EmulatorLive do
       current_rom_path: game_path,
       paused: false
     )
+    |> reset_debugger()
     |> start_or_reload_emulator(game_path, paths.boot_path)
   end
 
@@ -295,6 +363,7 @@ defmodule GbEmuWeb.EmulatorLive do
        when is_binary(current_rom_path) do
     socket
     |> assign(paused: false)
+    |> reset_debugger()
     |> start_or_reload_emulator(current_rom_path, paths.boot_path)
   end
 
@@ -380,298 +449,436 @@ defmodule GbEmuWeb.EmulatorLive do
   defp normalize_bool("false"), do: {:ok, false}
   defp normalize_bool(_), do: :error
 
+  defp run_debug_command(socket, command, trace_mode \\ :append) do
+    with pid when is_pid(pid) <- socket.assigns.emulator do
+      pid
+      |> Emulator.debug_command(command, current_memory_start(socket))
+      |> apply_debug_result(socket, trace_mode)
+    else
+      _ -> {:noreply, assign(socket, debug_error: "The emulator is not available.")}
+    end
+  end
+
+  defp apply_debug_result({:ok, result}, socket, trace_mode) do
+    memory_start = get_in(result, [:snapshot, :memory, :start]) || current_memory_start(socket)
+
+    socket =
+      socket
+      |> assign(
+        debug_attached: true,
+        debug_snapshot: result.snapshot,
+        debug_error: nil,
+        paused: true,
+        debug_memory_form:
+          to_form(%{"address" => format_debug_address(memory_start)}, as: :memory)
+      )
+      |> update_debug_stream(result, trace_mode)
+
+    {:noreply, socket}
+  end
+
+  defp apply_debug_result({:error, reason}, socket, _trace_mode) do
+    {:noreply, put_debug_error(socket, reason)}
+  end
+
+  defp put_debug_error(socket, :not_attached) do
+    assign(socket,
+      debug_attached: false,
+      paused: false,
+      debug_error: debug_error_message(:not_attached)
+    )
+  end
+
+  defp put_debug_error(socket, :emulator_unavailable) do
+    assign(socket,
+      emulator: nil,
+      emulator_status: :error,
+      debug_attached: false,
+      paused: false,
+      debug_error: debug_error_message(:emulator_unavailable)
+    )
+  end
+
+  defp put_debug_error(socket, reason) do
+    assign(socket, debug_error: debug_error_message(reason))
+  end
+
+  defp update_debug_stream(socket, result, _trace_mode) do
+    # A timed-out boundary command can retain confirmed partial history without
+    # returning a snapshot. The next successful response is therefore the
+    # authoritative reconciliation point, including memory-only responses.
+    stream(socket, :debug_traces, Map.get(result.snapshot, :history, []), reset: true)
+  end
+
+  defp current_memory_start(%{assigns: %{debug_snapshot: %{memory: %{start: start}}}})
+       when is_integer(start),
+       do: start
+
+  defp current_memory_start(_socket), do: 0x0000
+
+  defp reset_debugger(socket) do
+    socket
+    |> assign(
+      paused: false,
+      debug_attached: false,
+      debug_snapshot: nil,
+      debug_error: nil,
+      debug_memory_form: to_form(%{"address" => "0000"}, as: :memory)
+    )
+    |> stream(:debug_traces, [], reset: true)
+  end
+
+  defp parse_debug_address(address) when is_binary(address) do
+    address =
+      address
+      |> String.trim()
+      |> String.trim_leading("$")
+      |> strip_hex_prefix()
+
+    case Integer.parse(address, 16) do
+      {value, ""} when value in 0x0000..0xFFFF -> {:ok, value}
+      _ -> :error
+    end
+  end
+
+  defp parse_debug_address(_address), do: :error
+
+  defp strip_hex_prefix("0x" <> address), do: address
+  defp strip_hex_prefix("0X" <> address), do: address
+  defp strip_hex_prefix(address), do: address
+
+  defp format_debug_address(address) do
+    address
+    |> Bitwise.band(0xFFFF)
+    |> Integer.to_string(16)
+    |> String.pad_leading(4, "0")
+    |> String.upcase()
+  end
+
+  defp debug_error_message(:not_attached), do: "Attach the debugger first."
+
+  defp debug_error_message(:timeout),
+    do: "Debugger command timed out; the last confirmed snapshot is still shown."
+
+  defp debug_error_message(:step_limit), do: "Debugger stopped at its safe instruction limit."
+  defp debug_error_message(:invalid_steps), do: "The requested step count is not valid."
+  defp debug_error_message(:invalid_command), do: "That debugger command is not available."
+
+  defp debug_error_message(:restart_failed),
+    do: "Could not restart the active ROM and boot source."
+
+  defp debug_error_message(:emulator_unavailable), do: "The emulator is no longer available."
+  defp debug_error_message(_reason), do: "The debugger command could not be completed."
+
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <div class="min-h-screen bg-[#17202a] text-slate-200 flex flex-col items-center py-8 px-4 select-none">
-        <h1 class="text-2xl font-bold tracking-wide text-lime-300 mb-1">
+      <div class="min-h-screen bg-[#10171d] px-3 py-6 text-slate-200 select-none sm:px-5 lg:px-8">
+        <h1 class="text-center text-2xl font-bold tracking-wide text-lime-300 mb-1">
           Game Boy <span class="text-slate-400 font-normal">on the BEAM</span>
         </h1>
-        <p class="text-sm text-slate-400 mb-6">
+        <p class="mb-6 text-center text-sm text-slate-400">
           DMG emulated in Elixir &middot; frames streamed over LiveView
         </p>
 
         <div
-          id="gameboy"
-          phx-hook=".GameBoy"
-          phx-update="ignore"
-          class="rounded-2xl bg-[#c5c0bd] p-6 pb-10 shadow-2xl"
-          tabindex="0"
+          id="emulator-workbench"
+          class="mx-auto grid w-full max-w-[1540px] items-start gap-5 xl:grid-cols-[minmax(0,640px)_minmax(460px,1fr)]"
         >
-          <div class="rounded-lg bg-[#3f3f44] p-4">
-            <canvas
-              id="gb-screen"
-              width="160"
-              height="144"
-              class="block w-[480px] max-w-full aspect-[160/144] bg-[#9bbc0f]"
-              style="image-rendering: pixelated;"
-            ></canvas>
-          </div>
-          <div class="mt-3 text-center text-[10px] font-bold tracking-widest text-[#2d2a6e]">
-            GAME BOY <span class="italic">on Elixir</span>
-          </div>
-        </div>
+          <main id="game-column" class="flex min-w-0 flex-col items-center">
+            <div
+              id="gameboy"
+              phx-hook=".GameBoy"
+              phx-update="ignore"
+              class="rounded-2xl bg-[#c5c0bd] p-6 pb-10 shadow-2xl"
+              tabindex="0"
+            >
+              <div class="rounded-lg bg-[#3f3f44] p-4">
+                <canvas
+                  id="gb-screen"
+                  width="160"
+                  height="144"
+                  class="block w-[480px] max-w-full aspect-[160/144] bg-[#9bbc0f]"
+                  style="image-rendering: pixelated;"
+                ></canvas>
+              </div>
+              <div class="mt-3 text-center text-[10px] font-bold tracking-widest text-[#2d2a6e]">
+                GAME BOY <span class="italic">on Elixir</span>
+              </div>
+            </div>
 
-        <div
-          :if={is_nil(@current_rom_path)}
-          id="rom-empty-state"
-          class="mt-6 max-w-lg rounded border border-slate-700 bg-slate-900/70 p-4 text-center text-sm text-slate-300"
-        >
-          No ROM is loaded. Upload a legally obtained homebrew ROM or personal cartridge dump to play in this browser session.
-        </div>
+            <div
+              :if={is_nil(@current_rom_path)}
+              id="rom-empty-state"
+              class="mt-6 max-w-lg rounded border border-slate-700 bg-slate-900/70 p-4 text-center text-sm text-slate-300"
+            >
+              No ROM is loaded. Upload a legally obtained homebrew ROM or personal cartridge dump to play in this browser session.
+            </div>
 
-        <form
-          id="rom-upload-form"
-          phx-change="validate_uploads"
-          phx-submit="upload_roms"
-          onkeydown="if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); }"
-          class="mt-6 w-full max-w-xl rounded border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-200"
-        >
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div phx-drop-target={@uploads.rom.ref}>
-              <label for={@uploads.rom.ref} class="mb-2 block font-semibold text-lime-300">
-                Game ROM
-              </label>
-              <.live_file_input upload={@uploads.rom} class="sr-only" />
-              <label
-                id="game-rom-upload-button"
-                for={@uploads.rom.ref}
-                class="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded border border-lime-300/60 bg-lime-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-200"
-              >
-                <.icon name="hero-arrow-up-tray" class="size-4" /> Upload game ROM
-              </label>
-              <div :for={entry <- @uploads.rom.entries} class="mt-2 text-xs text-slate-400">
-                <div class="flex items-center justify-between gap-2">
-                  <span>{entry.client_name}</span>
-                  <button
-                    type="button"
-                    phx-click="cancel-upload"
-                    phx-value-kind="rom"
-                    phx-value-ref={entry.ref}
-                    class="text-slate-500 transition hover:text-slate-200"
+            <form
+              id="rom-upload-form"
+              phx-change="validate_uploads"
+              phx-submit="upload_roms"
+              onkeydown="if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); }"
+              class="mt-6 w-full max-w-xl rounded border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-200"
+            >
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div phx-drop-target={@uploads.rom.ref}>
+                  <label for={@uploads.rom.ref} class="mb-2 block font-semibold text-lime-300">
+                    Game ROM
+                  </label>
+                  <.live_file_input upload={@uploads.rom} class="sr-only" />
+                  <label
+                    id="game-rom-upload-button"
+                    for={@uploads.rom.ref}
+                    class="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded border border-lime-300/60 bg-lime-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-200"
                   >
-                    Cancel
+                    <.icon name="hero-arrow-up-tray" class="size-4" /> Upload game ROM
+                  </label>
+                  <div :for={entry <- @uploads.rom.entries} class="mt-2 text-xs text-slate-400">
+                    <div class="flex items-center justify-between gap-2">
+                      <span>{entry.client_name}</span>
+                      <button
+                        type="button"
+                        phx-click="cancel-upload"
+                        phx-value-kind="rom"
+                        phx-value-ref={entry.ref}
+                        class="text-slate-500 transition hover:text-slate-200"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <progress class="h-1 w-full" value={entry.progress} max="100">
+                      {entry.progress}%
+                    </progress>
+                    <p :for={err <- upload_errors(@uploads.rom, entry)} class="text-red-300">
+                      {upload_error_to_string(err)}
+                    </p>
+                  </div>
+                  <p :for={err <- upload_errors(@uploads.rom)} class="mt-2 text-xs text-red-300">
+                    {upload_error_to_string(err)}
+                  </p>
+                </div>
+
+                <div phx-drop-target={@uploads.boot_rom.ref}>
+                  <label for={@uploads.boot_rom.ref} class="mb-2 block font-semibold text-lime-300">
+                    Boot ROM
+                  </label>
+                  <.live_file_input upload={@uploads.boot_rom} class="sr-only" />
+                  <label
+                    id="boot-rom-upload-button"
+                    for={@uploads.boot_rom.ref}
+                    class="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded border border-lime-300/60 bg-lime-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-200"
+                  >
+                    <.icon name="hero-arrow-up-tray" class="size-4" /> Upload boot ROM
+                  </label>
+                  <div :for={entry <- @uploads.boot_rom.entries} class="mt-2 text-xs text-slate-400">
+                    <div class="flex items-center justify-between gap-2">
+                      <span>{entry.client_name}</span>
+                      <button
+                        type="button"
+                        phx-click="cancel-upload"
+                        phx-value-kind="boot_rom"
+                        phx-value-ref={entry.ref}
+                        class="text-slate-500 transition hover:text-slate-200"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <progress class="h-1 w-full" value={entry.progress} max="100">
+                      {entry.progress}%
+                    </progress>
+                    <p :for={err <- upload_errors(@uploads.boot_rom, entry)} class="text-red-300">
+                      {upload_error_to_string(err)}
+                    </p>
+                  </div>
+                  <p :for={err <- upload_errors(@uploads.boot_rom)} class="mt-2 text-xs text-red-300">
+                    {upload_error_to_string(err)}
+                  </p>
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+                <span>
+                  {if @uploaded_game?,
+                    do: "Game ROM stored for this browser session.",
+                    else: "No game ROM stored."}
+                  {if @uploaded_boot?, do: " Boot ROM stored.", else: " Using open boot stub."}
+                </span>
+                <button
+                  type="submit"
+                  class="rounded border border-lime-300/60 bg-lime-300 px-3 py-1.5 font-semibold text-slate-950 transition hover:bg-lime-200"
+                >
+                  Load uploads
+                </button>
+              </div>
+              <p class="mt-3 text-xs text-slate-500">
+                Uploaded files are private to this signed browser session and are deleted after {@upload_retention_label} without this browser reconnecting.
+              </p>
+            </form>
+
+            <div
+              :if={@emulator_status == :capacity}
+              id="emulator-capacity-state"
+              class="mt-6 max-w-lg rounded border border-amber-400/40 bg-amber-950/40 p-4 text-center text-sm text-amber-100"
+            >
+              Emulator capacity is full. This instance allows {@max_sessions} concurrent sessions.
+            </div>
+
+            <div
+              :if={@emulator_status == :error}
+              id="emulator-error-state"
+              class="mt-6 max-w-lg rounded border border-red-400/40 bg-red-950/40 p-4 text-center text-sm text-red-100"
+            >
+              The emulator could not start for this ROM.
+            </div>
+
+            <div
+              :if={@roms != [] or @current_rom_path}
+              class="mt-6 flex flex-wrap items-center justify-center gap-3"
+            >
+              <form
+                id="rom-select-form"
+                phx-change="select_rom"
+                onkeydown="if (event.key === 'Enter') { event.preventDefault(); }"
+              >
+                <.input
+                  :if={@roms != []}
+                  id="rom-select"
+                  type="select"
+                  name="rom"
+                  options={@rom_options}
+                  value={@current_rom}
+                  class="rounded border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200"
+                />
+              </form>
+              <button
+                id="reset-button"
+                phx-click="reset"
+                class="rounded border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-600"
+              >
+                Reset
+              </button>
+              <button
+                id="pause-button"
+                phx-click="toggle_pause"
+                disabled={@debug_attached}
+                class="rounded border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {if @paused, do: "Resume", else: "Pause"}
+              </button>
+              <span class="text-xs text-slate-400 tabular-nums w-20">{@fps} fps</span>
+            </div>
+
+            <div id="gb-controls" class="mt-6 flex flex-wrap items-start justify-center gap-8">
+              <div class="grid grid-cols-3 gap-1 place-items-center">
+                <div></div>
+                <button
+                  id="pad-up"
+                  type="button"
+                  phx-mousedown="pad_down"
+                  phx-mouseup="pad_up"
+                  phx-value-button="up"
+                  class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+                >
+                  ↑
+                </button>
+                <div></div>
+                <button
+                  id="pad-left"
+                  type="button"
+                  phx-mousedown="pad_down"
+                  phx-mouseup="pad_up"
+                  phx-value-button="left"
+                  class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+                >
+                  ←
+                </button>
+                <button
+                  id="pad-down"
+                  type="button"
+                  phx-mousedown="pad_down"
+                  phx-mouseup="pad_up"
+                  phx-value-button="down"
+                  class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+                >
+                  ↓
+                </button>
+                <button
+                  id="pad-right"
+                  type="button"
+                  phx-mousedown="pad_down"
+                  phx-mouseup="pad_up"
+                  phx-value-button="right"
+                  class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+                >
+                  →
+                </button>
+              </div>
+
+              <div class="flex flex-col gap-2">
+                <div class="flex gap-2">
+                  <button
+                    id="pad-b"
+                    type="button"
+                    phx-click="pad_tap"
+                    phx-value-button="b"
+                    class="h-11 min-w-14 rounded-full bg-slate-700 px-4 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+                  >
+                    B
+                  </button>
+                  <button
+                    id="pad-a"
+                    type="button"
+                    phx-click="pad_tap"
+                    phx-value-button="a"
+                    class="h-11 min-w-14 rounded-full bg-slate-700 px-4 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
+                  >
+                    A
                   </button>
                 </div>
-                <progress class="h-1 w-full" value={entry.progress} max="100">
-                  {entry.progress}%
-                </progress>
-                <p :for={err <- upload_errors(@uploads.rom, entry)} class="text-red-300">
-                  {upload_error_to_string(err)}
-                </p>
-              </div>
-              <p :for={err <- upload_errors(@uploads.rom)} class="mt-2 text-xs text-red-300">
-                {upload_error_to_string(err)}
-              </p>
-            </div>
-
-            <div phx-drop-target={@uploads.boot_rom.ref}>
-              <label for={@uploads.boot_rom.ref} class="mb-2 block font-semibold text-lime-300">
-                Boot ROM
-              </label>
-              <.live_file_input upload={@uploads.boot_rom} class="sr-only" />
-              <label
-                id="boot-rom-upload-button"
-                for={@uploads.boot_rom.ref}
-                class="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded border border-lime-300/60 bg-lime-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-lime-200"
-              >
-                <.icon name="hero-arrow-up-tray" class="size-4" /> Upload boot ROM
-              </label>
-              <div :for={entry <- @uploads.boot_rom.entries} class="mt-2 text-xs text-slate-400">
-                <div class="flex items-center justify-between gap-2">
-                  <span>{entry.client_name}</span>
+                <div class="flex gap-2">
                   <button
+                    id="pad-select"
                     type="button"
-                    phx-click="cancel-upload"
-                    phx-value-kind="boot_rom"
-                    phx-value-ref={entry.ref}
-                    class="text-slate-500 transition hover:text-slate-200"
+                    phx-click="pad_tap"
+                    phx-value-button="select"
+                    class="h-9 min-w-16 rounded bg-slate-800 px-3 text-xs font-semibold uppercase tracking-wide text-slate-200 active:bg-lime-400 active:text-slate-900"
                   >
-                    Cancel
+                    Select
+                  </button>
+                  <button
+                    id="pad-start"
+                    type="button"
+                    phx-click="pad_tap"
+                    phx-value-button="start"
+                    class="h-9 min-w-16 rounded bg-lime-300 px-3 text-xs font-semibold uppercase tracking-wide text-slate-950 active:bg-lime-200"
+                  >
+                    Start
                   </button>
                 </div>
-                <progress class="h-1 w-full" value={entry.progress} max="100">
-                  {entry.progress}%
-                </progress>
-                <p :for={err <- upload_errors(@uploads.boot_rom, entry)} class="text-red-300">
-                  {upload_error_to_string(err)}
-                </p>
               </div>
-              <p :for={err <- upload_errors(@uploads.boot_rom)} class="mt-2 text-xs text-red-300">
-                {upload_error_to_string(err)}
-              </p>
             </div>
-          </div>
 
-          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-            <span>
-              {if @uploaded_game?,
-                do: "Game ROM stored for this browser session.",
-                else: "No game ROM stored."}
-              {if @uploaded_boot?, do: " Boot ROM stored.", else: " Using open boot stub."}
-            </span>
-            <button
-              type="submit"
-              class="rounded border border-lime-300/60 bg-lime-300 px-3 py-1.5 font-semibold text-slate-950 transition hover:bg-lime-200"
-            >
-              Load uploads
-            </button>
-          </div>
-          <p class="mt-3 text-xs text-slate-500">
-            Uploaded files are private to this signed browser session and are deleted after {@upload_retention_label} without this browser reconnecting.
-          </p>
-        </form>
-
-        <div
-          :if={@emulator_status == :capacity}
-          id="emulator-capacity-state"
-          class="mt-6 max-w-lg rounded border border-amber-400/40 bg-amber-950/40 p-4 text-center text-sm text-amber-100"
-        >
-          Emulator capacity is full. This instance allows {@max_sessions} concurrent sessions.
-        </div>
-
-        <div
-          :if={@emulator_status == :error}
-          id="emulator-error-state"
-          class="mt-6 max-w-lg rounded border border-red-400/40 bg-red-950/40 p-4 text-center text-sm text-red-100"
-        >
-          The emulator could not start for this ROM.
-        </div>
-
-        <div
-          :if={@roms != [] or @current_rom_path}
-          class="mt-6 flex flex-wrap items-center justify-center gap-3"
-        >
-          <form
-            id="rom-select-form"
-            phx-change="select_rom"
-            onkeydown="if (event.key === 'Enter') { event.preventDefault(); }"
-          >
-            <.input
-              :if={@roms != []}
-              id="rom-select"
-              type="select"
-              name="rom"
-              options={@rom_options}
-              value={@current_rom}
-              class="rounded border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200"
-            />
-          </form>
-          <button
-            id="reset-button"
-            phx-click="reset"
-            class="rounded border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-600"
-          >
-            Reset
-          </button>
-          <button
-            id="pause-button"
-            phx-click="toggle_pause"
-            class="rounded border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-600"
-          >
-            {if @paused, do: "Resume", else: "Pause"}
-          </button>
-          <span class="text-xs text-slate-400 tabular-nums w-20">{@fps} fps</span>
-        </div>
-
-        <div id="gb-controls" class="mt-6 flex flex-wrap items-start justify-center gap-8">
-          <div class="grid grid-cols-3 gap-1 place-items-center">
-            <div></div>
-            <button
-              id="pad-up"
-              type="button"
-              phx-mousedown="pad_down"
-              phx-mouseup="pad_up"
-              phx-value-button="up"
-              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
-            >
-              ↑
-            </button>
-            <div></div>
-            <button
-              id="pad-left"
-              type="button"
-              phx-mousedown="pad_down"
-              phx-mouseup="pad_up"
-              phx-value-button="left"
-              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
-            >
-              ←
-            </button>
-            <button
-              id="pad-down"
-              type="button"
-              phx-mousedown="pad_down"
-              phx-mouseup="pad_up"
-              phx-value-button="down"
-              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
-            >
-              ↓
-            </button>
-            <button
-              id="pad-right"
-              type="button"
-              phx-mousedown="pad_down"
-              phx-mouseup="pad_up"
-              phx-value-button="right"
-              class="h-10 w-10 rounded bg-slate-700 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
-            >
-              →
-            </button>
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <div class="flex gap-2">
-              <button
-                id="pad-b"
-                type="button"
-                phx-click="pad_tap"
-                phx-value-button="b"
-                class="h-11 min-w-14 rounded-full bg-slate-700 px-4 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
-              >
-                B
-              </button>
-              <button
-                id="pad-a"
-                type="button"
-                phx-click="pad_tap"
-                phx-value-button="a"
-                class="h-11 min-w-14 rounded-full bg-slate-700 px-4 text-sm font-bold text-slate-100 active:bg-lime-400 active:text-slate-900"
-              >
-                A
-              </button>
+            <div class="mt-4 grid grid-cols-2 gap-x-10 gap-y-1 text-xs text-slate-400">
+              <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">←→↑↓</kbd> D-pad</span>
+              <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Z</kbd> A</span>
+              <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Enter</kbd> Start</span>
+              <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">X</kbd> B</span>
+              <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Shift</kbd> Select</span>
+              <span class="text-slate-500">Use the green Start button if Enter glitches</span>
             </div>
-            <div class="flex gap-2">
-              <button
-                id="pad-select"
-                type="button"
-                phx-click="pad_tap"
-                phx-value-button="select"
-                class="h-9 min-w-16 rounded bg-slate-800 px-3 text-xs font-semibold uppercase tracking-wide text-slate-200 active:bg-lime-400 active:text-slate-900"
-              >
-                Select
-              </button>
-              <button
-                id="pad-start"
-                type="button"
-                phx-click="pad_tap"
-                phx-value-button="start"
-                class="h-9 min-w-16 rounded bg-lime-300 px-3 text-xs font-semibold uppercase tracking-wide text-slate-950 active:bg-lime-200"
-              >
-                Start
-              </button>
-            </div>
-          </div>
-        </div>
+          </main>
 
-        <div class="mt-4 grid grid-cols-2 gap-x-10 gap-y-1 text-xs text-slate-400">
-          <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">←→↑↓</kbd> D-pad</span>
-          <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Z</kbd> A</span>
-          <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Enter</kbd> Start</span>
-          <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">X</kbd> B</span>
-          <span><kbd class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">Shift</kbd> Select</span>
-          <span class="text-slate-500">Use the green Start button if Enter glitches</span>
+          <.sidebar
+            attached={@debug_attached}
+            available={is_pid(@emulator) and @emulator_status == :running}
+            snapshot={@debug_snapshot}
+            error={@debug_error}
+            memory_form={@debug_memory_form}
+            trace_stream={@streams.debug_traces}
+          />
         </div>
 
         <script :type={Phoenix.LiveView.ColocatedHook} name=".GameBoy">
@@ -727,6 +934,7 @@ defmodule GbEmuWeb.EmulatorLive do
 
               this.typingTarget = (el) => {
                 if (!el) return false
+                if (el.closest("[data-debug-ui]")) return true
                 const tag = el.tagName
                 return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable
               }

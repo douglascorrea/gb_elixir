@@ -86,6 +86,8 @@ defmodule GbEmuWeb do
       import Phoenix.HTML
       # Core UI components
       import GbEmuWeb.CoreComponents
+      # Educational emulator debugger components
+      import GbEmuWeb.DebuggerComponents, only: [sidebar: 1]
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
