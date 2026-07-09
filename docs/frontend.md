@@ -123,7 +123,9 @@ implement their own.
 ignored `#gameboy` canvas container. It is sticky and independently scrollable
 on desktop, then stacks below the console at narrower widths. The memory panel
 is the largest surface; trace rows use a LiveView stream reconciled from the
-authoritative, bounded snapshot history.
+authoritative, bounded snapshot history. Register/flag deltas are read from the
+newest trace, and fixed memory-region buttons send the same non-executing
+`"debug_memory"` event as the hexadecimal form.
 
 The aside carries `data-debug-ui`. The capture-phase keyboard handler checks
 `target.closest("[data-debug-ui]")` before mapping a key, so arrows and Enter

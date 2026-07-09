@@ -215,22 +215,11 @@ defmodule GbEmuWeb.EmulatorLive do
     do: run_debug_command(socket, :restart, :reset)
 
   def handle_event("debug_memory", %{"memory" => %{"address" => address}}, socket) do
-    case parse_debug_address(address) do
-      {:ok, memory_start} ->
-        with pid when is_pid(pid) <- socket.assigns.emulator do
-          pid
-          |> Emulator.debug_memory(memory_start)
-          |> apply_debug_result(socket, :memory)
-        else
-          _ -> {:noreply, assign(socket, debug_error: "The emulator is not available.")}
-        end
+    navigate_debug_memory(socket, address)
+  end
 
-      :error ->
-        {:noreply,
-         socket
-         |> assign(debug_error: "Enter a hexadecimal address between 0000 and FFFF.")
-         |> assign(debug_memory_form: to_form(%{"address" => address}, as: :memory))}
-    end
+  def handle_event("debug_memory", %{"address" => address}, socket) do
+    navigate_debug_memory(socket, address)
   end
 
   def handle_event("debug_memory", _params, socket) do
@@ -449,6 +438,25 @@ defmodule GbEmuWeb.EmulatorLive do
   defp normalize_bool("false"), do: {:ok, false}
   defp normalize_bool(_), do: :error
 
+  defp navigate_debug_memory(socket, address) do
+    case parse_debug_address(address) do
+      {:ok, memory_start} ->
+        with pid when is_pid(pid) <- socket.assigns.emulator do
+          pid
+          |> Emulator.debug_memory(memory_start)
+          |> apply_debug_result(socket, :memory)
+        else
+          _ -> {:noreply, assign(socket, debug_error: "The emulator is not available.")}
+        end
+
+      :error ->
+        {:noreply,
+         socket
+         |> assign(debug_error: "Enter a hexadecimal address between 0000 and FFFF.")
+         |> assign(debug_memory_form: to_form(%{"address" => address}, as: :memory))}
+    end
+  end
+
   defp run_debug_command(socket, command, trace_mode \\ :append) do
     with pid when is_pid(pid) <- socket.assigns.emulator do
       pid
@@ -466,7 +474,7 @@ defmodule GbEmuWeb.EmulatorLive do
       socket
       |> assign(
         debug_attached: true,
-        debug_snapshot: result.snapshot,
+        debug_snapshot: Map.delete(result.snapshot, :history),
         debug_error: nil,
         paused: true,
         debug_memory_form:

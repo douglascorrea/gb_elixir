@@ -15,7 +15,7 @@ defmodule GbEmu.Debugger.Disassembler do
   @rp2 {"BC", "DE", "HL", "AF"}
   @rp_mem {"(BC)", "(DE)", "(HL+)", "(HL-)"}
   @cc {"NZ", "Z", "NC", "C"}
-  @alu {"ADD A", "ADC A", "SUB A", "SBC A", "AND A", "XOR A", "OR A", "CP A"}
+  @alu {"ADD A", "ADC A", "SUB", "SBC A", "AND", "XOR", "OR", "CP"}
   @rot {"RLCA", "RRCA", "RLA", "RRA", "DAA", "CPL", "SCF", "CCF"}
   @cb_rot {"RLC", "RRC", "RL", "RR", "SLA", "SRA", "SWAP", "SRL"}
   @invalid [0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD]
@@ -126,7 +126,7 @@ defmodule GbEmu.Debugger.Disassembler do
   defp decode_x1(6, 6), do: {1, "HALT", []}
   defp decode_x1(y, z), do: {1, "LD #{elem(@r8, y)}, #{elem(@r8, z)}", []}
 
-  defp decode_x2(y, z), do: {1, "#{elem(@alu, y)}, #{elem(@r8, z)}", []}
+  defp decode_x2(y, z), do: {1, alu_mnemonic(elem(@alu, y), elem(@r8, z)), []}
 
   defp decode_x3(_opcode, y, 0, _p, _q, byte, _word) do
     case y do
@@ -181,7 +181,7 @@ defmodule GbEmu.Debugger.Disassembler do
   defp decode_x3(opcode, _y, 5, _p, 1, _byte, _word), do: undefined(opcode)
 
   defp decode_x3(_opcode, y, 6, _p, _q, byte, _word),
-    do: {2, "#{elem(@alu, y)}, #{hex8(byte)}", [byte]}
+    do: {2, alu_mnemonic(elem(@alu, y), hex8(byte)), [byte]}
 
   defp decode_x3(_opcode, y, 7, _p, _q, _byte, _word) do
     vector = y * 8
@@ -194,6 +194,11 @@ defmodule GbEmu.Debugger.Disassembler do
   end
 
   defp undefined(opcode), do: {1, "UNDEFINED #{hex8(opcode)} (NOP)", []}
+
+  defp alu_mnemonic(operation, operand) when operation in ["SUB", "AND", "XOR", "OR", "CP"],
+    do: "#{operation} #{operand}"
+
+  defp alu_mnemonic(operation, operand), do: "#{operation}, #{operand}"
 
   defp handler_selector(opcode) do
     cond do

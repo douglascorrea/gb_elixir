@@ -91,7 +91,8 @@ authoritative; the next successful snapshot reconciles the visible timeline.
 The instruction panel shows the next assembly instruction at the current PC,
 its raw opcode bytes, and a link to the exact `GbEmu.CPU` clause that will
 interpret it. The register file shows A, F, B, C, D, E, H, L, SP, PC, the Z/N/H/C
-flags, IME, and HALT state.
+flags, IME, and HALT state. Registers changed by the newest boundary receive an
+amber highlight and show `before→current`; changed flags show `0→1` or `1→0`.
 
 ### Memory explorer
 
@@ -99,6 +100,12 @@ The memory panel is a 16x16 view of a 256-byte window. Enter a hexadecimal
 address such as `C000`, `$C000`, or `0xC000` and select **Read**. Navigation uses
 non-tracing peeks: it does not execute an instruction or add artificial bus
 reads to the trace.
+
+Region shortcuts jump directly to **BOOT/ROM0** (`$0000`), **ROMX** (`$4000`),
+**VRAM** (`$8000`), **ERAM** (`$A000`), **WRAM** (`$C000`), **ECHO** (`$E000`),
+**OAM** (`$FE00`), **IO** (`$FF00`), **HRAM** (`$FF80`), or **IE** (`$FFFF`).
+The IE shortcut displays the final `$FF00-$FFFF` window so the one-byte IE
+register remains visible with its surrounding I/O/HRAM context.
 
 The requested address is aligned to a 16-byte boundary. Near the end of the
 address space it is clamped to `$FF00`, so the complete 256-byte window always

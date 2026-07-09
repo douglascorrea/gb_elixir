@@ -86,6 +86,38 @@ defmodule GbEmu.DebuggerTest do
     assert cb.handler == {:cpu, "defp exec_cb(op, gb) do"}
   end
 
+  test "disassembler uses implicit accumulator syntax for subtract and logic instructions" do
+    grouped = [
+      {0x80, "ADD A, B"},
+      {0x88, "ADC A, B"},
+      {0x90, "SUB B"},
+      {0x98, "SBC A, B"},
+      {0xA0, "AND B"},
+      {0xA8, "XOR B"},
+      {0xB0, "OR B"},
+      {0xB8, "CP B"}
+    ]
+
+    immediate = [
+      {0xC6, "ADD A, $12"},
+      {0xCE, "ADC A, $12"},
+      {0xD6, "SUB $12"},
+      {0xDE, "SBC A, $12"},
+      {0xE6, "AND $12"},
+      {0xEE, "XOR $12"},
+      {0xF6, "OR $12"},
+      {0xFE, "CP $12"}
+    ]
+
+    for {opcode, mnemonic} <- grouped do
+      assert Disassembler.decode(machine_with_bytes(<<opcode>>)).mnemonic == mnemonic
+    end
+
+    for {opcode, mnemonic} <- immediate do
+      assert Disassembler.decode(machine_with_bytes(<<opcode, 0x12>>)).mnemonic == mnemonic
+    end
+  end
+
   test "a traced store explains instruction memory and source flow" do
     gb = %{machine_with_bytes(<<0xEA, 0x00, 0xC0>>) | a: 0x42}
 

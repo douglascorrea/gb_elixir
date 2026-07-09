@@ -9,6 +9,19 @@ defmodule GbEmuWeb.DebuggerComponents do
 
   alias GbEmu.Debugger.SourceMap
 
+  @memory_shortcuts [
+    %{id: "boot-rom0", label: "BOOT/ROM0", address: 0x0000},
+    %{id: "romx", label: "ROMX", address: 0x4000},
+    %{id: "vram", label: "VRAM", address: 0x8000},
+    %{id: "eram", label: "ERAM", address: 0xA000},
+    %{id: "wram", label: "WRAM", address: 0xC000},
+    %{id: "echo", label: "ECHO", address: 0xE000},
+    %{id: "oam", label: "OAM", address: 0xFE00},
+    %{id: "io", label: "IO", address: 0xFF00},
+    %{id: "hram", label: "HRAM", address: 0xFF80},
+    %{id: "ie", label: "IE", address: 0xFFFF}
+  ]
+
   attr :attached, :boolean, required: true
   attr :available, :boolean, required: true
   attr :snapshot, :map, default: nil
@@ -217,12 +230,17 @@ defmodule GbEmuWeb.DebuggerComponents do
     cpu = snapshot_value(assigns.snapshot, :cpu, %{})
     registers = Map.get(cpu, :registers, %{})
     flags = Map.get(cpu, :flags, %{})
+    trace = snapshot_value(assigns.snapshot, :newest_trace, %{}) || %{}
+    register_changes = Map.get(trace, :register_deltas, %{})
+    flag_changes = get_in(trace, [:flags, :changes]) || %{}
 
     assigns =
       assigns
       |> assign(:registers, registers)
       |> assign(:flags, flags)
       |> assign(:cpu, cpu)
+      |> assign(:register_changes, register_changes)
+      |> assign(:flag_changes, flag_changes)
 
     ~H"""
     <section id="debug-registers" class="debugger-panel">
@@ -233,13 +251,37 @@ defmodule GbEmuWeb.DebuggerComponents do
             :for={name <- [:a, :f, :b, :c, :d, :e, :h, :l]}
             name={name}
             value={Map.get(@registers, name, 0)}
+            delta={Map.get(@register_changes, name)}
           />
-          <.register name={:sp} value={Map.get(@registers, :sp, 0)} wide />
-          <.register name={:pc} value={Map.get(@registers, :pc, 0)} wide />
+          <.register
+            name={:sp}
+            value={Map.get(@registers, :sp, 0)}
+            delta={Map.get(@register_changes, :sp)}
+            wide
+          />
+          <.register
+            name={:pc}
+            value={Map.get(@registers, :pc, 0)}
+            delta={Map.get(@register_changes, :pc)}
+            wide
+          />
         </div>
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <span :for={flag <- [:z, :n, :h, :c]} class={flag_class(Map.get(@flags, flag, false))}>
-            {String.upcase(Atom.to_string(flag))}
+          <span
+            :for={flag <- [:z, :n, :h, :c]}
+            data-flag={flag}
+            data-changed={if(Map.has_key?(@flag_changes, flag), do: "true", else: nil)}
+            data-before={flag_delta_value(Map.get(@flag_changes, flag), :before)}
+            data-after={flag_delta_value(Map.get(@flag_changes, flag), :after)}
+            class={[
+              flag_class(Map.get(@flags, flag, false)),
+              Map.has_key?(@flag_changes, flag) && "ring-1 ring-amber-300/70"
+            ]}
+          >
+            <span>{String.upcase(Atom.to_string(flag))}</span>
+            <span :if={delta = Map.get(@flag_changes, flag)} class="ml-1 text-[8px] text-amber-200">
+              {flag_bit(delta.before)}→{flag_bit(delta.after)}
+            </span>
           </span>
           <span class="ml-auto font-mono text-[10px] text-slate-500">
             IME {on_off(Map.get(@cpu, :ime, false))} · HALT {on_off(Map.get(@cpu, :halted, false))}
@@ -254,15 +296,28 @@ defmodule GbEmuWeb.DebuggerComponents do
 
   attr :name, :atom, required: true
   attr :value, :integer, required: true
+  attr :delta, :map, default: nil
   attr :wide, :boolean, default: false
 
   defp register(assigns) do
     ~H"""
-    <div class="bg-[#10161a] px-2 py-2 text-center">
+    <div
+      data-register={@name}
+      data-changed={if(@delta, do: "true", else: nil)}
+      data-before={register_delta_value(@delta, :before, @wide)}
+      data-after={register_delta_value(@delta, :after, @wide)}
+      class={[
+        "px-2 py-2 text-center",
+        if(@delta, do: "bg-amber-400/[0.08]", else: "bg-[#10161a]")
+      ]}
+    >
       <span class="block font-mono text-[9px] font-bold uppercase tracking-widest text-slate-500">
         {@name}
       </span>
       <strong class="mt-0.5 block font-mono text-xs text-lime-300">
+        <span :if={@delta} class="mr-0.5 text-[8px] font-normal text-amber-200/70">
+          {register_delta_value(@delta, :before, @wide)}→
+        </span>
         {if @wide, do: hex16(@value), else: hex8(@value)}
       </strong>
     </div>
@@ -284,6 +339,7 @@ defmodule GbEmuWeb.DebuggerComponents do
       |> assign(:memory, memory)
       |> assign(:cells, cells)
       |> assign(:activity, Enum.take(activity, -16))
+      |> assign(:memory_shortcuts, @memory_shortcuts)
 
     ~H"""
     <section class="debugger-panel debugger-memory-panel">
@@ -315,6 +371,25 @@ defmodule GbEmuWeb.DebuggerComponents do
           Read
         </button>
       </.form>
+
+      <nav
+        id="debug-memory-shortcuts"
+        aria-label="Game Boy memory regions"
+        class="mb-3 flex flex-wrap gap-1"
+      >
+        <button
+          :for={shortcut <- @memory_shortcuts}
+          id={"debug-memory-shortcut-#{shortcut.id}"}
+          type="button"
+          phx-click="debug_memory"
+          phx-value-address={hex16(shortcut.address)}
+          data-memory-shortcut
+          disabled={!@attached}
+          class="border border-slate-700 bg-[#10161a] px-2 py-1 font-mono text-[8px] font-bold tracking-wide text-slate-400 transition hover:border-cyan-400/40 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          {shortcut.label}
+        </button>
+      </nav>
 
       <div class="mb-2 flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-slate-500">
         <span>
@@ -631,6 +706,19 @@ defmodule GbEmuWeb.DebuggerComponents do
   defp flag_class(false),
     do:
       "border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-[9px] font-bold text-slate-600"
+
+  defp register_delta_value(nil, _key, _wide), do: nil
+
+  defp register_delta_value(delta, key, true),
+    do: delta |> Map.get(key, 0) |> hex16()
+
+  defp register_delta_value(delta, key, false),
+    do: delta |> Map.get(key, 0) |> hex8()
+
+  defp flag_delta_value(nil, _key), do: nil
+  defp flag_delta_value(delta, key), do: delta |> Map.get(key, false) |> to_string()
+  defp flag_bit(true), do: 1
+  defp flag_bit(false), do: 0
 
   defp memory_cell_class(cell) do
     [

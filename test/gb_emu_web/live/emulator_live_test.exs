@@ -62,6 +62,20 @@ defmodule GbEmuWeb.EmulatorLiveTest do
 
     assert has_selector?(
              html,
+             "#debug-registers [data-register='pc'][data-changed='true'][data-before='0000'][data-after='00FC']"
+           )
+
+    assert has_selector?(
+             html,
+             "#debug-registers [data-flag='z'][data-changed='true'][data-before='false'][data-after='true']"
+           )
+
+    for shortcut <- ~w(boot-rom0 romx vram eram wram echo oam io hram ie) do
+      assert has_selector?(html, "#debug-memory-shortcut-#{shortcut}[data-memory-shortcut]")
+    end
+
+    assert has_selector?(
+             html,
              ".debugger-memory-event[data-memory-operation='read_range'][data-memory-address='8000']"
            )
 
@@ -99,6 +113,8 @@ defmodule GbEmuWeb.EmulatorLiveTest do
 
     assert has_element?(view, "#debug-attach:not([disabled])")
     view |> element("#debug-attach") |> render_click()
+    view |> element("#debug-memory-shortcut-wram") |> render_click()
+    assert has_element?(view, "#debug-memory-grid [data-address='C000']")
     view |> element("#debug-step-10") |> render_click()
     view |> element("#debug-next-ppu") |> render_click()
     assert has_element?(view, "#debug-error[role='alert']")
@@ -224,7 +240,15 @@ defmodule GbEmuWeb.EmulatorLiveTest do
       pc_before: 0,
       pc_after: 0x00FC,
       cycles: 16,
-      register_deltas: %{pc: %{before: 0, after: 0x00FC}},
+      register_deltas: %{
+        a: %{before: 0, after: 1},
+        pc: %{before: 0, after: 0x00FC}
+      },
+      flags: %{
+        before: %{z: false, n: false, h: false, c: false},
+        after: %{z: true, n: false, h: false, c: false},
+        changes: %{z: %{before: false, after: true}}
+      },
       memory: [
         %{
           operation: :read,
