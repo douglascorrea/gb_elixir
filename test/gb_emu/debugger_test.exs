@@ -299,6 +299,7 @@ defmodule GbEmu.DebuggerTest do
 
   test "a 256-byte file-style boot traces from 0000 without the open-stub handoff" do
     file_boot = put_byte(BootRom.minimal(), 0x80, 0x42)
+    assert byte_size(file_boot) == 256
     refute BootRom.minimal?(file_boot)
 
     gb = Machine.new(file_boot, test_rom())
@@ -428,6 +429,59 @@ defmodule GbEmu.DebuggerTest do
     assert snapshot.history == [trace]
   end
 
+  test "snapshot preserves serial and joypad Bus side-effect fields" do
+    serial_gb = %{machine_with_bytes(<<0xE0, 0x02>>) | a: 0x81}
+    {serial_gb, serial_trace} = Debugger.step(serial_gb)
+    serial_snapshot = Snapshot.build(serial_gb, newest_trace: serial_trace)
+
+    assert serial_snapshot.newest_trace == serial_trace
+
+    assert Enum.any?(serial_trace.memory, fn event ->
+             get_in(event, [:side_effects, Access.at(0), :changes, :serial_cycles]) == %{
+               before: nil,
+               after: 4096
+             }
+           end)
+
+    joypad_gb = %{machine_with_bytes(<<0xE0, 0x00>>) | a: 0x10}
+    {joypad_gb, joypad_trace} = Debugger.step(joypad_gb)
+    joypad_snapshot = Snapshot.build(joypad_gb, newest_trace: joypad_trace)
+
+    assert joypad_snapshot.newest_trace == joypad_trace
+
+    assert Enum.any?(joypad_trace.memory, fn event ->
+             get_in(event, [:side_effects, Access.at(0), :changes, :joyp_select]) == %{
+               before: 0x30,
+               after: 0x10
+             }
+           end)
+  end
+
+  test "snapshot drops malformed ranges containing non-display terms" do
+    reference = make_ref()
+    poisoned_range = %{(0xC000..0xC09F) | first: reference}
+
+    trace = %{
+      id: 9,
+      kind: :instruction,
+      memory: [
+        %{
+          type: :memory,
+          operation: :dma,
+          source: poisoned_range,
+          destination: 0xFE00..0xFE9F
+        }
+      ]
+    }
+
+    snapshot = Snapshot.build(new_machine(), newest_trace: trace)
+    [memory_event] = snapshot.newest_trace.memory
+
+    refute Map.has_key?(memory_event, :source)
+    assert memory_event.destination == 0xFE00..0xFE9F
+    refute nested_match?(snapshot, &is_reference/1)
+  end
+
   test "fixed and boundary commands return snapshots and retain at most 200 traces" do
     {:ok, gb, traces, snapshot} = Debugger.run(machine_with_bytes(<<0x00>>), {:steps, 205})
 
@@ -470,6 +524,9 @@ defmodule GbEmu.DebuggerTest do
   defp nested_match?(term, predicate) do
     predicate.(term) or
       cond do
+        is_struct(term, Range) ->
+          Enum.any?([term.first, term.last, term.step], &nested_match?(&1, predicate))
+
         is_map(term) ->
           Enum.any?(term, fn {key, value} ->
             nested_match?(key, predicate) or nested_match?(value, predicate)

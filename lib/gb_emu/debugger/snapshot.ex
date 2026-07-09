@@ -119,6 +119,8 @@ defmodule GbEmu.Debugger.Snapshot do
     :if_,
     :sb,
     :sc,
+    :serial_cycles,
+    :joyp_select,
     :cycles_remaining,
     :output_bytes,
     :mbc,
@@ -206,7 +208,11 @@ defmodule GbEmu.Debugger.Snapshot do
     end
   end
 
-  defp project_value(_key, %Range{} = range), do: {:ok, range}
+  defp project_value(_key, %Range{first: first, last: last, step: step} = range)
+       when is_integer(first) and is_integer(last) and is_integer(step) and step != 0,
+       do: {:ok, range}
+
+  defp project_value(_key, %Range{}), do: :error
   defp project_value(_key, %{__struct__: _module}), do: :error
 
   defp project_value(_key, value) when is_map(value) do
