@@ -5,7 +5,7 @@ defmodule GbEmu.Bus do
   """
 
   import Bitwise
-  alias GbEmu.GB
+  alias GbEmu.{BootRom, GB}
 
   @spec read8(GB.t() | struct(), non_neg_integer()) :: non_neg_integer()
   def read8(gb, addr) do
@@ -262,7 +262,17 @@ defmodule GbEmu.Bus do
         %{gb | wx: v}
 
       0xFF50 ->
-        if v != 0, do: %{gb | boot_enabled: false}, else: gb
+        cond do
+          v == 0 ->
+            gb
+
+          gb.boot_enabled and gb.boot_kind == :minimal and gb.boot_mode == :cold ->
+            compatibility_state = Map.delete(BootRom.post_boot_state(), :pc)
+            struct!(gb, compatibility_state)
+
+          true ->
+            %{gb | boot_enabled: false}
+        end
 
       _ ->
         :atomics.put(gb.io_misc, (addr &&& 0x7F) + 1, v)

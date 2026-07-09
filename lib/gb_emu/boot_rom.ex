@@ -9,17 +9,17 @@ defmodule GbEmu.BootRom do
   """
 
   @minimal_boot <<
+    # jp $00fc
+    0xC3,
+    0xFC,
+    0x00,
+    0::size(8 * (0xFC - 3)),
     # ld a, 1
     0x3E,
     0x01,
     # ldh ($ff50), a
     0xE0,
-    0x50,
-    # jp $0100
-    0xC3,
-    0x00,
-    0x01,
-    0::size(8 * (0x100 - 7))
+    0x50
   >>
 
   @doc "Returns the built-in open boot stub."

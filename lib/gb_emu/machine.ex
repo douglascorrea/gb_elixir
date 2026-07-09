@@ -9,7 +9,18 @@ defmodule GbEmu.Machine do
   @cycles_per_frame 70_224
   @screen_bytes 160 * 144
 
-  def new(boot, rom), do: GB.new(boot, rom)
+  @spec new(binary(), binary(), keyword()) :: GB.t()
+  def new(boot, rom, opts \\ []), do: GB.new(boot, rom, opts)
+
+  @doc "Advances the CPU and peripherals by one instruction boundary."
+  @spec step_instruction(GB.t()) :: {GB.t(), pos_integer()}
+  def step_instruction(gb) do
+    {gb, cycles} = CPU.step(gb)
+    gb = PPU.step(gb, cycles)
+    gb = Timer.step(gb, cycles)
+    gb = step_serial(gb, cycles)
+    {gb, cycles}
+  end
 
   @doc """
   Runs one frame worth of cycles. Returns `{gb, frame_binary}` where the
@@ -23,10 +34,7 @@ defmodule GbEmu.Machine do
   defp run_cycles(gb, budget) when budget <= 0, do: gb
 
   defp run_cycles(gb, budget) do
-    {gb, cycles} = CPU.step(gb)
-    gb = PPU.step(gb, cycles)
-    gb = Timer.step(gb, cycles)
-    gb = step_serial(gb, cycles)
+    {gb, cycles} = step_instruction(gb)
     run_cycles(gb, budget - cycles)
   end
 

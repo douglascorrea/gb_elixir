@@ -38,6 +38,26 @@ defmodule GbEmu.MachineTest do
     assert byte_size(frame) == 160 * 144
   end
 
+  test "fast open boot preserves the existing post-boot start" do
+    gb = Machine.new(BootRom.minimal(), test_rom())
+
+    assert gb.pc == 0x0100
+    refute gb.boot_enabled
+    assert gb.boot_kind == :minimal
+    assert gb.boot_mode == :fast
+    refute gb.debug_trace?
+  end
+
+  test "file boot records its source without taking the open-boot fast path" do
+    gb = Machine.new(:binary.copy(<<0>>, 0x100), test_rom())
+
+    assert gb.pc == 0x0000
+    assert gb.boot_enabled
+    assert gb.boot_kind == :file
+    assert gb.boot_mode == :fast
+    refute gb.debug_trace?
+  end
+
   test "joypad input updates button state and requests the joypad interrupt" do
     gb = new_machine()
 
