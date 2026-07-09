@@ -1,7 +1,7 @@
 defmodule GbEmu.DebuggerTest do
   use ExUnit.Case, async: true
 
-  alias GbEmu.{BootRom, Bus, Debugger, Machine}
+  alias GbEmu.{BootRom, Bus, Debugger, GB, Machine}
   alias GbEmu.Debugger.{Disassembler, Snapshot, SourceMap, Trace}
 
   defp test_rom do
@@ -326,6 +326,68 @@ defmodule GbEmu.DebuggerTest do
     assert aligned.memory.start == 0x0120
   end
 
+  test "snapshot recursively projects caller traces onto a display-only schema" do
+    gb = new_machine()
+    frame = :binary.copy(<<3>>, 160 * 144)
+
+    newest_trace = %{
+      id: 7,
+      kind: :instruction,
+      mnemonic: "NOP",
+      registers: gb,
+      memory: [
+        %{
+          type: :memory,
+          operation: :read,
+          address: 0xC000,
+          value: gb.vram,
+          label: gb.boot,
+          before: gb,
+          payload: %{rom: gb.rom, atomics: gb.wram}
+        }
+      ],
+      events: [
+        %{
+          type: :stage,
+          component: :cpu,
+          cycles: gb.extram,
+          source_location: gb.oam,
+          after: %{frame: frame, atomics: gb.hram}
+        }
+      ],
+      machine: gb,
+      rom: gb.rom
+    }
+
+    history_trace = %{
+      id: 6,
+      kind: :instruction,
+      mnemonic: gb.rom,
+      handler: {:cpu, frame},
+      events: [%{type: :stage, before: gb, source_location: gb.io_misc}],
+      boot: gb.boot,
+      frame: frame,
+      atomics: [gb.vram, gb.wram, gb.oam, gb.hram, gb.extram, gb.io_misc]
+    }
+
+    snapshot =
+      Snapshot.build(gb,
+        newest_trace: newest_trace,
+        history: [history_trace, newest_trace]
+      )
+
+    assert snapshot.newest_trace.id == 7
+    assert snapshot.newest_trace.mnemonic == "NOP"
+    assert Enum.map(snapshot.history, & &1.id) == [6, 7]
+
+    refute nested_match?(snapshot, &is_struct(&1, GB))
+    refute nested_match?(snapshot, &is_reference/1)
+
+    for machine_binary <- [gb.rom, gb.boot, frame] do
+      refute nested_match?(snapshot, &(&1 === machine_binary))
+    end
+  end
+
   test "fixed and boundary commands return snapshots and retain at most 200 traces" do
     {:ok, gb, traces, snapshot} = Debugger.run(machine_with_bytes(<<0x00>>), {:steps, 205})
 
@@ -363,5 +425,26 @@ defmodule GbEmu.DebuggerTest do
     assert snapshot.command.total_steps == 10_000
     assert snapshot.command.limit == 10_000
     assert snapshot.command.history_truncated?
+  end
+
+  defp nested_match?(term, predicate) do
+    predicate.(term) or
+      cond do
+        is_map(term) ->
+          Enum.any?(term, fn {key, value} ->
+            nested_match?(key, predicate) or nested_match?(value, predicate)
+          end)
+
+        is_list(term) ->
+          Enum.any?(term, &nested_match?(&1, predicate))
+
+        is_tuple(term) ->
+          term
+          |> Tuple.to_list()
+          |> Enum.any?(&nested_match?(&1, predicate))
+
+        true ->
+          false
+      end
   end
 end

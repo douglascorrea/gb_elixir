@@ -10,16 +10,142 @@ defmodule GbEmu.Debugger.Snapshot do
 
   @memory_size 256
   @history_limit 200
+  @trace_collection_limit 512
+  @trace_text_limit 255
+
+  @trace_keys [
+    :id,
+    :kind,
+    :pc,
+    :opcode,
+    :cb_opcode,
+    :bytes,
+    :length,
+    :mnemonic,
+    :operands,
+    :handler,
+    :pc_before,
+    :pc_after,
+    :cycles,
+    :registers,
+    :register_deltas,
+    :flags,
+    :memory,
+    :ppu,
+    :timer,
+    :interrupts,
+    :serial,
+    :cartridge,
+    :boot,
+    :deltas,
+    :events,
+    :sources
+  ]
+
+  @trace_nested_keys [
+    :type,
+    :operation,
+    :address,
+    :value,
+    :requested,
+    :before,
+    :after,
+    :changes,
+    :region,
+    :label,
+    :source_location,
+    :side_effects,
+    :ranges,
+    :source,
+    :destination,
+    :start,
+    :stop,
+    :purpose,
+    :component,
+    :cycles,
+    :ly,
+    :frame_count,
+    :interrupt,
+    :vector,
+    :compatibility?,
+    :source_start,
+    :bytes,
+    :selector,
+    :path,
+    :line,
+    :url,
+    :cpu,
+    :ppu,
+    :timer,
+    :interrupts,
+    :serial,
+    :cartridge,
+    :boot,
+    :a,
+    :f,
+    :b,
+    :c,
+    :d,
+    :e,
+    :h,
+    :l,
+    :sp,
+    :pc,
+    :ime,
+    :ime_pending,
+    :halted,
+    :z,
+    :n,
+    :lcdc,
+    :stat,
+    :scy,
+    :scx,
+    :lyc,
+    :bgp,
+    :obp0,
+    :obp1,
+    :wy,
+    :wx,
+    :ppu_dot,
+    :ppu_mode,
+    :window_line,
+    :div_counter,
+    :tima_acc,
+    :tima,
+    :tma,
+    :tac,
+    :ie,
+    :if,
+    :if_,
+    :sb,
+    :sc,
+    :cycles_remaining,
+    :output_bytes,
+    :mbc,
+    :rom_bank,
+    :rom_bank_mask,
+    :ram_bank,
+    :ram_enabled,
+    :mbc1_mode,
+    :boot_enabled,
+    :boot_kind,
+    :boot_mode
+  ]
+
+  @trace_text_keys [:mnemonic, :label, :selector, :path, :url]
 
   @doc "Builds a compact snapshot and a clamped 256-byte memory window."
   @spec build(GB.t(), keyword()) :: map()
   def build(gb, opts \\ []) do
-    newest_trace = Keyword.get(opts, :newest_trace, Keyword.get(opts, :trace))
+    newest_trace =
+      opts
+      |> Keyword.get(:newest_trace, Keyword.get(opts, :trace))
+      |> project_trace()
 
     history =
       opts
       |> Keyword.get(:history, default_history(newest_trace))
-      |> Enum.take(-@history_limit)
+      |> project_history()
 
     instruction = Disassembler.decode(gb)
     next_pc = gb.pc + instruction.length &&& 0xFFFF
@@ -41,6 +167,83 @@ defmodule GbEmu.Debugger.Snapshot do
       newest_trace: newest_trace,
       history: history
     }
+  end
+
+  defp project_history(history) when is_list(history) do
+    history
+    |> Enum.take(-@history_limit)
+    |> Enum.map(&project_trace/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp project_history(_history), do: []
+
+  defp project_trace(nil), do: nil
+  defp project_trace(%{__struct__: _module}), do: nil
+
+  defp project_trace(trace) when is_map(trace) do
+    project_map(trace, @trace_keys)
+  end
+
+  defp project_trace(_trace), do: nil
+
+  defp project_map(map, keys) do
+    Enum.reduce(keys, %{}, fn key, projected ->
+      with {:ok, value} <- Map.fetch(map, key),
+           {:ok, value} <- project_value(key, value) do
+        Map.put(projected, key, value)
+      else
+        _ -> projected
+      end
+    end)
+  end
+
+  defp project_value(:handler, {component, selector})
+       when is_atom(component) and is_binary(selector) do
+    case project_text(selector) do
+      {:ok, selector} -> {:ok, {component, selector}}
+      :error -> :error
+    end
+  end
+
+  defp project_value(_key, %Range{} = range), do: {:ok, range}
+  defp project_value(_key, %{__struct__: _module}), do: :error
+
+  defp project_value(_key, value) when is_map(value) do
+    {:ok, project_map(value, @trace_nested_keys)}
+  end
+
+  defp project_value(_key, value) when is_list(value) do
+    projected =
+      value
+      |> Enum.take(@trace_collection_limit)
+      |> Enum.reduce([], fn item, acc ->
+        case project_value(nil, item) do
+          {:ok, item} -> [item | acc]
+          :error -> acc
+        end
+      end)
+      |> Enum.reverse()
+
+    {:ok, projected}
+  end
+
+  defp project_value(key, value) when key in @trace_text_keys and is_binary(value),
+    do: project_text(value)
+
+  defp project_value(_key, value)
+       when is_integer(value) or is_float(value) or is_atom(value),
+       do: {:ok, value}
+
+  defp project_value(_key, _value), do: :error
+
+  defp project_text(value) do
+    if byte_size(value) <= @trace_text_limit and String.valid?(value) and
+         String.printable?(value) do
+      {:ok, value}
+    else
+      :error
+    end
   end
 
   defp cpu(gb) do
