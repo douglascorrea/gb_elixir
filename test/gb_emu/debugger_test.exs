@@ -154,6 +154,34 @@ defmodule GbEmu.DebuggerTest do
     assert Enum.any?(trace.sources, &(&1.path == "lib/gb_emu/timer.ex"))
   end
 
+  test "a traced serial completion reports SB and SC before-after deltas" do
+    gb = machine_with_bytes(<<0x00>>)
+    gb = Bus.write8(gb, 0xFF01, 0x42)
+    gb = Bus.write8(gb, 0xFF02, 0x81)
+    gb = %{gb | serial_cycles: 4}
+
+    {gb, trace} = Debugger.step(gb)
+
+    assert trace.serial.before == %{
+             sb: 0x42,
+             sc: 0x81,
+             cycles_remaining: 4,
+             output_bytes: 0
+           }
+
+    assert trace.serial.after == %{
+             sb: 0xFF,
+             sc: 0x01,
+             cycles_remaining: nil,
+             output_bytes: 1
+           }
+
+    assert trace.serial.changes.sb == %{before: 0x42, after: 0xFF}
+    assert trace.serial.changes.sc == %{before: 0x81, after: 0x01}
+    assert Bus.peek8(gb, 0xFF01) == 0xFF
+    assert Bus.peek8(gb, 0xFF02) == 0x01
+  end
+
   test "PPU scanline rendering records grouped memory ranges and a transition" do
     gb = %{machine_with_bytes(<<0x00>>) | ppu_mode: 3, ppu_dot: 250, ly: 7}
 

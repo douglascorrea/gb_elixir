@@ -5,7 +5,7 @@ defmodule GbEmu.Debugger do
 
   import Bitwise
 
-  alias GbEmu.{CPU, GB, Machine}
+  alias GbEmu.{Bus, CPU, GB, Machine}
   alias GbEmu.Debugger.{Disassembler, Snapshot, SourceMap, Trace}
 
   @limits %{ppu_event: 10_000, scanline: 10_000, frame: 100_000}
@@ -223,6 +223,8 @@ defmodule GbEmu.Debugger do
       timer: Map.take(gb, @timer_fields),
       interrupts: %{ie: gb.ie, if: gb.if_},
       serial: %{
+        sb: Bus.peek8(gb, 0xFF01),
+        sc: Bus.peek8(gb, 0xFF02),
         cycles_remaining: gb.serial_cycles,
         output_bytes: length(gb.serial_out)
       },
