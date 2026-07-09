@@ -57,64 +57,95 @@ defmodule GbEmu.Debugger do
   @doc "Runs a validated debugger command and returns bounded history plus a snapshot."
   @spec run(GB.t(), term()) ::
           {:ok, GB.t(), [map()], map()} | {:error, atom(), GB.t(), [map()], map()}
-  def run(gb, :instruction) do
-    {gb, trace} = step(gb)
-    traces = [trace]
-    {:ok, gb, traces, command_snapshot(gb, traces, :instruction, 1, nil)}
+  def run(gb, command), do: run(gb, command, :infinity)
+
+  @doc "Runs a debugger command, stopping before the next instruction once `deadline` expires."
+  @spec run(GB.t(), term(), integer() | :infinity) ::
+          {:ok, GB.t(), [map()], map()} | {:error, atom(), GB.t(), [map()], map()}
+  def run(gb, _command, deadline) when deadline != :infinity and not is_integer(deadline) do
+    snapshot = command_snapshot(gb, [], :invalid_deadline, 0, nil)
+    {:error, :invalid_deadline, gb, [], snapshot}
   end
 
-  def run(gb, {:steps, steps})
+  def run(gb, :instruction, deadline) do
+    if deadline_expired?(deadline) do
+      timeout_result(gb, [], :instruction, 0, nil)
+    else
+      {gb, trace} = step(gb)
+      traces = [trace]
+      {:ok, gb, traces, command_snapshot(gb, traces, :instruction, 1, nil)}
+    end
+  end
+
+  def run(gb, {:steps, steps} = command, deadline)
       when is_integer(steps) and steps > 0 and steps <= @fixed_step_limit do
-    {gb, newest_first} = run_steps(gb, steps, [])
-    traces = Enum.reverse(newest_first)
-    {:ok, gb, traces, command_snapshot(gb, traces, {:steps, steps}, steps, steps)}
+    case run_steps(gb, steps, deadline, 0, []) do
+      {:ok, gb, total_steps, newest_first} ->
+        traces = Enum.reverse(newest_first)
+        {:ok, gb, traces, command_snapshot(gb, traces, command, total_steps, steps)}
+
+      {:error, :timeout, gb, total_steps, newest_first} ->
+        traces = Enum.reverse(newest_first)
+        timeout_result(gb, traces, command, total_steps, steps)
+    end
   end
 
-  def run(gb, {:steps, _steps}) do
+  def run(gb, {:steps, _steps}, _deadline) do
     snapshot = command_snapshot(gb, [], :invalid_steps, 0, @fixed_step_limit)
     {:error, :invalid_steps, gb, [], snapshot}
   end
 
-  def run(gb, command) when command in [:ppu_event, :scanline, :frame] do
-    run_to_boundary(gb, command)
+  def run(gb, command, deadline) when command in [:ppu_event, :scanline, :frame] do
+    run_to_boundary(gb, command, deadline)
   end
 
-  def run(gb, _command) do
+  def run(gb, _command, _deadline) do
     snapshot = command_snapshot(gb, [], :invalid_command, 0, nil)
     {:error, :invalid_command, gb, [], snapshot}
   end
 
-  defp run_steps(gb, 0, traces), do: {gb, traces}
-
-  defp run_steps(gb, remaining, traces) do
-    {gb, trace} = step(gb)
-    run_steps(gb, remaining - 1, retain(trace, traces))
+  defp run_steps(gb, 0, _deadline, total_steps, traces) do
+    {:ok, gb, total_steps, traces}
   end
 
-  defp run_to_boundary(gb, command) do
+  defp run_steps(gb, remaining, deadline, total_steps, traces) do
+    if deadline_expired?(deadline) do
+      {:error, :timeout, gb, total_steps, traces}
+    else
+      {gb, trace} = step(gb)
+      run_steps(gb, remaining - 1, deadline, total_steps + 1, retain(trace, traces))
+    end
+  end
+
+  defp run_to_boundary(gb, command, deadline) do
     limit = Map.fetch!(@limits, command)
     initial = boundary_value(gb, command)
-    run_to_boundary(gb, command, initial, limit, 0, [])
+    run_to_boundary(gb, command, initial, limit, deadline, 0, [])
   end
 
-  defp run_to_boundary(gb, command, initial, limit, total_steps, traces) do
-    {gb, trace} = step(gb)
-    total_steps = total_steps + 1
-    traces = retain(trace, traces)
+  defp run_to_boundary(gb, command, initial, limit, deadline, total_steps, traces) do
+    if deadline_expired?(deadline) do
+      traces = Enum.reverse(traces)
+      timeout_result(gb, traces, command, total_steps, limit)
+    else
+      {gb, trace} = step(gb)
+      total_steps = total_steps + 1
+      traces = retain(trace, traces)
 
-    cond do
-      boundary_value(gb, command) != initial ->
-        traces = Enum.reverse(traces)
-        {:ok, gb, traces, command_snapshot(gb, traces, command, total_steps, limit)}
+      cond do
+        boundary_value(gb, command) != initial ->
+          traces = Enum.reverse(traces)
+          {:ok, gb, traces, command_snapshot(gb, traces, command, total_steps, limit)}
 
-      total_steps >= limit ->
-        traces = Enum.reverse(traces)
+        total_steps >= limit ->
+          traces = Enum.reverse(traces)
 
-        {:error, :step_limit, gb, traces,
-         command_snapshot(gb, traces, command, total_steps, limit)}
+          {:error, :step_limit, gb, traces,
+           command_snapshot(gb, traces, command, total_steps, limit)}
 
-      true ->
-        run_to_boundary(gb, command, initial, limit, total_steps, traces)
+        true ->
+          run_to_boundary(gb, command, initial, limit, deadline, total_steps, traces)
+      end
     end
   end
 
@@ -123,6 +154,16 @@ defmodule GbEmu.Debugger do
   defp boundary_value(gb, :frame), do: gb.frame_count
 
   defp retain(trace, traces), do: [trace | traces] |> Enum.take(@history_limit)
+
+  defp timeout_result(gb, traces, command, total_steps, limit) do
+    {:error, :timeout, gb, traces, command_snapshot(gb, traces, command, total_steps, limit)}
+  end
+
+  defp deadline_expired?(:infinity), do: false
+
+  defp deadline_expired?(deadline) when is_integer(deadline) do
+    System.monotonic_time(:millisecond) >= deadline
+  end
 
   defp command_snapshot(gb, traces, command, total_steps, limit) do
     newest_trace = List.last(traces)
