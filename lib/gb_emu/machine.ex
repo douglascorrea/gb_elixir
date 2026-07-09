@@ -5,6 +5,7 @@ defmodule GbEmu.Machine do
   """
 
   alias GbEmu.{CPU, GB, PPU, Timer}
+  alias GbEmu.Debugger.Trace
 
   @cycles_per_frame 70_224
   @screen_bytes 160 * 144
@@ -14,6 +15,57 @@ defmodule GbEmu.Machine do
 
   @doc "Advances the CPU and peripherals by one instruction boundary."
   @spec step_instruction(GB.t()) :: {GB.t(), pos_integer()}
+  def step_instruction(%{debug_trace?: true} = gb) do
+    Trace.record(gb, %{
+      type: :stage,
+      component: :machine,
+      source_location: {:machine, "def step_instruction(%{debug_trace?: true} = gb) do"}
+    })
+
+    Trace.record(gb, %{
+      type: :stage,
+      component: :cpu,
+      source_location: {:cpu, "def step(gb) do"}
+    })
+
+    {gb, cycles} = CPU.step(gb)
+
+    Trace.record(gb, %{
+      type: :stage,
+      component: :ppu,
+      cycles: cycles,
+      source_location: {:ppu, "def step(%{debug_trace?: true} = gb, cycles) do"}
+    })
+
+    gb = PPU.step(gb, cycles)
+
+    Trace.record(gb, %{
+      type: :stage,
+      component: :timer,
+      cycles: cycles,
+      source_location: {:timer, "def step(gb, cycles) do"}
+    })
+
+    gb = Timer.step(gb, cycles)
+
+    serial_selector =
+      if is_nil(gb.serial_cycles) do
+        "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do: gb"
+      else
+        "defp step_serial(gb, cycles) do"
+      end
+
+    Trace.record(gb, %{
+      type: :stage,
+      component: :serial,
+      cycles: cycles,
+      source_location: {:machine, serial_selector}
+    })
+
+    gb = step_serial(gb, cycles)
+    {gb, cycles}
+  end
+
   def step_instruction(gb) do
     {gb, cycles} = CPU.step(gb)
     gb = PPU.step(gb, cycles)

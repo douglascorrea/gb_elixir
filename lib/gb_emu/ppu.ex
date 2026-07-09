@@ -7,12 +7,22 @@ defmodule GbEmu.PPU do
 
   import Bitwise
   alias GbEmu.GB
+  alias GbEmu.Debugger.Trace
 
   @screen_w 160
   @line_dots 456
   @mode3_end 252
 
-  def step(gb, cycles) do
+  def step(%{debug_trace?: true} = gb, cycles) do
+    before = ppu_state(gb)
+    result = do_step(gb, cycles)
+    trace_transition(gb, before, ppu_state(result))
+    result
+  end
+
+  def step(gb, cycles), do: do_step(gb, cycles)
+
+  defp do_step(gb, cycles) do
     if (gb.lcdc &&& 0x80) == 0 do
       gb
     else
@@ -103,9 +113,128 @@ defmodule GbEmu.PPU do
 
   defp render_scanline(gb) do
     ly = gb.ly
+    trace_scanline(gb, ly)
     {bg_indices, gb} = bg_window_line(gb, ly)
     {line, gb} = apply_sprites_and_palette(gb, ly, bg_indices)
     %{gb | fb_lines: Map.put(gb.fb_lines, ly, line)}
+  end
+
+  defp trace_scanline(%{debug_trace?: true} = gb, ly) do
+    ranges = scanline_ranges(gb, ly)
+
+    if ranges != [] do
+      Trace.record(gb, %{
+        type: :memory,
+        operation: :read_range,
+        ranges: ranges,
+        region: grouped_region(ranges),
+        label: "PPU grouped scanline reads",
+        source_location: {:ppu, "defp render_scanline(gb) do"}
+      })
+    end
+
+    Trace.record(gb, %{
+      type: :scanline_render,
+      ly: ly,
+      ranges: ranges,
+      source_location: {:ppu, "defp render_scanline(gb) do"}
+    })
+  end
+
+  defp trace_scanline(_gb, _ly), do: :ok
+
+  defp grouped_region(ranges) do
+    case ranges |> Enum.map(& &1.region) |> Enum.uniq() do
+      [region] -> region
+      _ -> :mixed
+    end
+  end
+
+  defp scanline_ranges(gb, ly) do
+    background_enabled? = (gb.lcdc &&& 0x01) != 0
+
+    ranges =
+      if background_enabled? do
+        background_map = if (gb.lcdc &&& 0x08) != 0, do: 0x9C00, else: 0x9800
+        background_row = (ly + gb.scy &&& 0xFF) >>> 3
+
+        [
+          %{
+            start: background_map + background_row * 32,
+            stop: background_map + background_row * 32 + 31,
+            region: :vram,
+            purpose: :tile_map
+          },
+          tile_data_range(gb)
+        ]
+      else
+        []
+      end
+
+    ranges =
+      if (gb.lcdc &&& 0x20) != 0 and background_enabled? and ly >= gb.wy and gb.wx <= 166 do
+        window_map = if (gb.lcdc &&& 0x40) != 0, do: 0x9C00, else: 0x9800
+        window_row = (gb.window_line &&& 0xFF) >>> 3
+
+        ranges ++
+          [
+            %{
+              start: window_map + window_row * 32,
+              stop: window_map + window_row * 32 + 31,
+              region: :vram,
+              purpose: :window_tile_map
+            }
+          ]
+      else
+        ranges
+      end
+
+    if (gb.lcdc &&& 0x02) != 0 do
+      ranges ++
+        [
+          %{start: 0x8000, stop: 0x8FFF, region: :vram, purpose: :sprite_tile_data},
+          %{start: 0xFE00, stop: 0xFE9F, region: :oam, purpose: :sprite_oam}
+        ]
+    else
+      ranges
+    end
+  end
+
+  defp tile_data_range(gb) do
+    if (gb.lcdc &&& 0x10) == 0 do
+      %{start: 0x8800, stop: 0x97FF, region: :vram, purpose: :tile_data}
+    else
+      %{start: 0x8000, stop: 0x8FFF, region: :vram, purpose: :tile_data}
+    end
+  end
+
+  defp ppu_state(gb) do
+    %{ppu_mode: gb.ppu_mode, ppu_dot: gb.ppu_dot, ly: gb.ly, frame_count: gb.frame_count}
+  end
+
+  defp trace_transition(gb, before, after_state) do
+    before_boundary = {before.ppu_mode, before.ly, before.frame_count}
+    after_boundary = {after_state.ppu_mode, after_state.ly, after_state.frame_count}
+
+    if before.frame_count != after_state.frame_count do
+      Trace.record(gb, %{
+        type: :vblank,
+        frame_count: after_state.frame_count,
+        ly: after_state.ly,
+        source_location: {:ppu, "defp finish_frame(gb) do"}
+      })
+    end
+
+    if before_boundary != after_boundary do
+      Trace.record(gb, %{
+        type: :ppu_event,
+        before: before,
+        after: after_state,
+        source_location: {:ppu, "defp advance(gb) do"}
+      })
+    else
+      :ok
+    end
   end
 
   # Returns {160-element list of BG/window color indices (0..3), gb}

@@ -6,9 +6,34 @@ defmodule GbEmu.Bus do
 
   import Bitwise
   alias GbEmu.{BootRom, GB}
+  alias GbEmu.Debugger.Trace
 
   @spec read8(GB.t() | struct(), non_neg_integer()) :: non_neg_integer()
-  def read8(gb, addr) do
+  def read8(%{debug_trace?: true} = gb, addr) do
+    addr = addr &&& 0xFFFF
+    value = peek8(gb, addr)
+    region = region(gb, addr)
+
+    Trace.record(gb, %{
+      type: :memory,
+      operation: :read,
+      address: addr,
+      value: value,
+      region: region,
+      label: label(gb, addr),
+      source_location: {:bus, branch_selector(:read, region)}
+    })
+
+    value
+  end
+
+  def read8(gb, addr), do: peek8(gb, addr)
+
+  @doc "Reads memory without producing a debugger trace event."
+  @spec peek8(GB.t() | struct(), non_neg_integer()) :: non_neg_integer()
+  def peek8(gb, addr) do
+    addr = addr &&& 0xFFFF
+
     cond do
       addr < 0x0100 and gb.boot_enabled ->
         :binary.at(gb.boot, addr)
@@ -56,7 +81,38 @@ defmodule GbEmu.Bus do
   def read16(gb, addr), do: read8(gb, addr) ||| read8(gb, addr + 1 &&& 0xFFFF) <<< 8
 
   @spec write8(struct(), non_neg_integer(), non_neg_integer()) :: struct()
-  def write8(gb, addr, v) do
+  def write8(%{debug_trace?: true} = gb, addr, requested) do
+    addr = addr &&& 0xFFFF
+    before = peek8(gb, addr)
+    value = requested &&& 0xFF
+    result = do_write8(gb, addr, value)
+    after_value = peek8(result, addr)
+    side_effects = write_side_effects(gb, result, addr, value)
+    region = write_region(addr)
+
+    Trace.record(gb, %{
+      type: :memory,
+      operation: :write,
+      address: addr,
+      requested: requested,
+      value: value,
+      before: before,
+      after: after_value,
+      region: region,
+      label: label(addr),
+      side_effects: side_effects,
+      source_location: {:bus, branch_selector(:write, region)}
+    })
+
+    trace_dma(gb, addr, value)
+    result
+  end
+
+  def write8(gb, addr, value) do
+    do_write8(gb, addr &&& 0xFFFF, value &&& 0xFF)
+  end
+
+  defp do_write8(gb, addr, v) do
     v = v &&& 0xFF
 
     cond do
@@ -99,6 +155,184 @@ defmodule GbEmu.Bus do
       true ->
         %{gb | ie: v}
     end
+  end
+
+  @doc "Returns the debugger region for an address in the current mapping."
+  @spec region(GB.t() | struct(), non_neg_integer()) :: atom()
+  def region(gb, addr) do
+    addr = addr &&& 0xFFFF
+
+    cond do
+      addr < 0x0100 and gb.boot_enabled -> :boot
+      addr < 0x4000 -> :rom0
+      addr < 0x8000 -> :romx
+      addr < 0xA000 -> :vram
+      addr < 0xC000 -> :external_ram
+      addr < 0xE000 -> :wram
+      addr < 0xFE00 -> :echo_ram
+      addr < 0xFEA0 -> :oam
+      addr < 0xFF00 -> :unusable
+      addr < 0xFF80 -> :io
+      addr < 0xFFFF -> :hram
+      true -> :ie
+    end
+  end
+
+  @doc "Returns a compact semantic label for an address."
+  @spec label(non_neg_integer()) :: String.t()
+  def label(addr) do
+    addr = addr &&& 0xFFFF
+
+    case addr do
+      0xFF00 -> "JOYP joypad input"
+      0xFF01 -> "SB serial data"
+      0xFF02 -> "SC serial control"
+      0xFF04 -> "DIV divider"
+      0xFF05 -> "TIMA timer counter"
+      0xFF06 -> "TMA timer modulo"
+      0xFF07 -> "TAC timer control"
+      0xFF0F -> "IF interrupt flags"
+      0xFF40 -> "LCDC display control"
+      0xFF41 -> "STAT display status"
+      0xFF42 -> "SCY scroll Y"
+      0xFF43 -> "SCX scroll X"
+      0xFF44 -> "LY scanline"
+      0xFF45 -> "LYC scanline compare"
+      0xFF46 -> "OAM DMA transfer"
+      0xFF47 -> "BGP background palette"
+      0xFF48 -> "OBP0 object palette 0"
+      0xFF49 -> "OBP1 object palette 1"
+      0xFF4A -> "WY window Y"
+      0xFF4B -> "WX window X"
+      0xFF50 -> "Boot ROM overlay control"
+      0xFFFF -> "IE interrupt enable"
+      _ -> region_label(addr)
+    end
+  end
+
+  @doc "Returns an address label that accounts for the boot overlay mapping."
+  @spec label(GB.t() | struct(), non_neg_integer()) :: String.t()
+  def label(%{boot_enabled: true}, addr) when (addr &&& 0xFFFF) < 0x0100,
+    do: "Boot ROM overlay"
+
+  def label(_gb, addr), do: label(addr)
+
+  defp trace_dma(gb, 0xFF46, source_high) do
+    source_start = source_high <<< 8
+
+    Trace.record(gb, %{
+      type: :memory,
+      operation: :dma,
+      source: source_start..(source_start + 0x9F),
+      destination: 0xFE00..0xFE9F,
+      ranges: [
+        %{start: source_start, stop: source_start + 0x9F, purpose: :dma_source},
+        %{start: 0xFE00, stop: 0xFE9F, purpose: :oam_destination}
+      ],
+      region: :oam,
+      label: "OAM DMA block transfer",
+      source_location: {:bus, "defp oam_dma(gb, src_hi) do"}
+    })
+  end
+
+  defp trace_dma(_gb, _addr, _value), do: :ok
+
+  @side_effect_fields [
+    :boot_enabled,
+    :rom_bank,
+    :ram_bank,
+    :ram_enabled,
+    :mbc1_mode,
+    :serial_cycles,
+    :div_counter,
+    :tima,
+    :tma,
+    :tac,
+    :if_,
+    :ie,
+    :joyp_select,
+    :lcdc,
+    :stat,
+    :scy,
+    :scx,
+    :ly,
+    :lyc,
+    :bgp,
+    :obp0,
+    :obp1,
+    :wy,
+    :wx,
+    :ppu_dot,
+    :ppu_mode,
+    :window_line
+  ]
+
+  defp write_side_effects(before, after_state, addr, value) do
+    changes =
+      Enum.reduce(@side_effect_fields, %{}, fn field, acc ->
+        old = Map.fetch!(before, field)
+        new = Map.fetch!(after_state, field)
+
+        if old == new do
+          acc
+        else
+          Map.put(acc, field, %{before: old, after: new})
+        end
+      end)
+
+    effects =
+      if map_size(changes) == 0 do
+        []
+      else
+        [%{type: :state_change, changes: changes}]
+      end
+
+    cond do
+      addr == 0xFF46 ->
+        [%{type: :dma, source_start: value <<< 8, bytes: 160} | effects]
+
+      addr == 0xFF50 and before.boot_enabled and not after_state.boot_enabled ->
+        [%{type: :boot_handoff, compatibility?: before.boot_kind == :minimal} | effects]
+
+      true ->
+        effects
+    end
+  end
+
+  defp region_label(addr) do
+    cond do
+      addr < 0x4000 -> "Cartridge ROM bank 0"
+      addr < 0x8000 -> "Switchable cartridge ROM"
+      addr < 0xA000 -> "Video RAM"
+      addr < 0xC000 -> "External cartridge RAM"
+      addr < 0xE000 -> "Work RAM"
+      addr < 0xFE00 -> "Echo RAM"
+      addr < 0xFEA0 -> "Object attribute memory"
+      addr < 0xFF00 -> "Unusable memory"
+      addr < 0xFF80 -> "I/O register"
+      addr < 0xFFFF -> "High RAM"
+      true -> "Interrupt enable"
+    end
+  end
+
+  defp write_region(addr) do
+    cond do
+      addr < 0x4000 -> :rom0
+      addr < 0x8000 -> :romx
+      addr < 0xA000 -> :vram
+      addr < 0xC000 -> :external_ram
+      addr < 0xE000 -> :wram
+      addr < 0xFE00 -> :echo_ram
+      addr < 0xFEA0 -> :oam
+      addr < 0xFF00 -> :unusable
+      addr < 0xFF80 -> :io
+      addr < 0xFFFF -> :hram
+      true -> :ie
+    end
+  end
+
+  defp branch_selector(operation, region) do
+    "bus:#{operation}:#{region}"
   end
 
   # --- MBC control writes ---
@@ -300,7 +534,7 @@ defmodule GbEmu.Bus do
     base = src_hi <<< 8
 
     Enum.each(0..0x9F, fn i ->
-      :atomics.put(gb.oam, i + 1, read8(gb, base + i))
+      :atomics.put(gb.oam, i + 1, peek8(gb, base + i))
     end)
 
     gb

@@ -5,12 +5,30 @@ defmodule GbEmu.CPU do
   """
 
   import Bitwise
-  alias GbEmu.Bus
+  alias GbEmu.{Bus, GB}
 
   @z 0x80
   @n 0x40
   @h 0x20
   @c 0x10
+
+  @doc "Classifies the next CPU boundary without executing it."
+  @spec boundary(GB.t()) :: map()
+  def boundary(gb) do
+    pending = gb.ie &&& gb.if_ &&& 0x1F
+
+    cond do
+      gb.ime and pending != 0 ->
+        bit = pending &&& -pending
+        Map.merge(%{kind: :interrupt, pending: pending}, interrupt(bit))
+
+      gb.halted and pending == 0 ->
+        %{kind: :halt, pending: pending}
+
+      true ->
+        %{kind: :instruction, pending: pending}
+    end
+  end
 
   @spec step(struct()) :: {struct(), pos_integer()}
   def step(gb) do
@@ -32,6 +50,12 @@ defmodule GbEmu.CPU do
         execute(gb)
     end
   end
+
+  defp interrupt(0x01), do: %{interrupt: :vblank, vector: 0x40, bit: 0x01}
+  defp interrupt(0x02), do: %{interrupt: :lcd_stat, vector: 0x48, bit: 0x02}
+  defp interrupt(0x04), do: %{interrupt: :timer, vector: 0x50, bit: 0x04}
+  defp interrupt(0x08), do: %{interrupt: :serial, vector: 0x58, bit: 0x08}
+  defp interrupt(0x10), do: %{interrupt: :joypad, vector: 0x60, bit: 0x10}
 
   defp execute(gb) do
     ei_pending = gb.ime_pending
