@@ -388,6 +388,17 @@ defmodule GbEmu.DebuggerTest do
     end
   end
 
+  test "snapshot preserves every display-safe field in a rich debugger trace" do
+    gb = %{machine_with_bytes(<<0xE0, 0x46>>) | a: 0xC0}
+    {gb, trace} = Debugger.step(gb)
+    trace = %{trace | operands: trace.operands ++ ["DMA", :block]}
+
+    snapshot = Snapshot.build(gb, newest_trace: trace, history: [trace])
+
+    assert snapshot.newest_trace == trace
+    assert snapshot.history == [trace]
+  end
+
   test "fixed and boundary commands return snapshots and retain at most 200 traces" do
     {:ok, gb, traces, snapshot} = Debugger.run(machine_with_bytes(<<0x00>>), {:steps, 205})
 

@@ -218,7 +218,7 @@ defmodule GbEmu.Debugger.Snapshot do
       value
       |> Enum.take(@trace_collection_limit)
       |> Enum.reduce([], fn item, acc ->
-        case project_value(nil, item) do
+        case project_list_item(item) do
           {:ok, item} -> [item | acc]
           :error -> acc
         end
@@ -236,6 +236,9 @@ defmodule GbEmu.Debugger.Snapshot do
        do: {:ok, value}
 
   defp project_value(_key, _value), do: :error
+
+  defp project_list_item(item) when is_binary(item), do: project_text(item)
+  defp project_list_item(item), do: project_value(nil, item)
 
   defp project_text(value) do
     if byte_size(value) <= @trace_text_limit and String.valid?(value) and
