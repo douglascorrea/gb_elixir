@@ -87,9 +87,9 @@
   %{
     id: "011",
     section: "machine-state",
-    title: "Define the Game Boy state struct",
+    title: "Construct the Game Boy state",
     goal:
-      "Introduce CPU registers, memory handles, IO registers, PPU state, timer state, and interrupt fields.",
+      "Initialize CPU registers, memory handles, IO registers, PPU state, timer state, and interrupt fields.",
     files: ["lib/gb_emu/gb.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -312,40 +312,40 @@
   %{
     id: "039",
     section: "cpu-fetch",
-    title: "Fetch immediate bytes",
-    goal: "Implement fetch8 and fetch16 with correct PC wrapping.",
+    title: "Fetch an immediate byte",
+    goal: "Read one byte through the bus and increment PC with 16-bit wrapping.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "040",
     section: "cpu-fetch",
-    title: "Represent register pairs",
-    goal: "Create BC, DE, HL getters and setters from 8-bit fields.",
+    title: "Read the HL register pair",
+    goal: "Combine H and L into one big-endian 16-bit register-pair value.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "041",
     section: "cpu-loads",
-    title: "Implement NOP and LD rr,d16",
-    goal: "Execute the first simple opcodes with correct cycle counts.",
+    title: "Implement LD BC,d16",
+    goal: "Fetch a little-endian immediate word into BC with the correct cycle count.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "042",
     section: "cpu-loads",
-    title: "Implement LD (rr),A and LD A,(rr)",
-    goal: "Move A through BC, DE, and HL-indirect memory paths.",
+    title: "Implement LD (BC),A",
+    goal: "Write the accumulator through the BC register pair.",
     files: ["lib/gb_emu/cpu.ex", "lib/gb_emu/bus.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "043",
     section: "cpu-loads",
-    title: "Implement HL auto-increment and decrement loads",
-    goal: "Support LDI and LDD addressing patterns used by boot and copy loops.",
+    title: "Implement LD (HL+),A",
+    goal: "Write A through HL and increment the register pair with 16-bit wrapping.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -368,16 +368,16 @@
   %{
     id: "046",
     section: "cpu-loads",
-    title: "Implement high-memory loads",
-    goal: "Support LDH and C-indexed IO addressing.",
+    title: "Implement LDH (a8),A",
+    goal: "Write A into the $FF00-page address selected by an immediate byte.",
     files: ["lib/gb_emu/cpu.ex", "lib/gb_emu/bus.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "047",
     section: "cpu-arithmetic",
-    title: "Implement INC and DEC",
-    goal: "Update Z, N, H, and preserved C flags for register and memory operands.",
+    title: "Implement INC r",
+    goal: "Increment register and memory operands while updating Z, H, and preserved C.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -400,48 +400,48 @@
   %{
     id: "050",
     section: "cpu-arithmetic",
-    title: "Implement AND, XOR, OR, and CP",
-    goal: "Finish the regular ALU opcode quadrant.",
+    title: "Implement AND",
+    goal: "Apply bitwise AND to A and set the SM83 Z and H flags.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "051",
     section: "cpu-arithmetic",
-    title: "Implement DAA and complement instructions",
-    goal: "Handle the irregular accumulator and flag instructions used by test ROMs.",
+    title: "Implement DAA",
+    goal: "Decimal-adjust A after packed-BCD addition and subtraction.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "052",
     section: "cpu-control",
-    title: "Implement relative jumps",
-    goal: "Parse signed 8-bit offsets and apply conditional cycle counts.",
+    title: "Implement JR e8",
+    goal: "Parse a signed 8-bit offset and apply it to PC with 16-bit wrapping.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "053",
     section: "cpu-control",
-    title: "Implement absolute jumps and calls",
-    goal: "Move PC to 16-bit targets and push return addresses for CALL.",
+    title: "Implement JP a16",
+    goal: "Fetch a 16-bit absolute target and move PC to it.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "054",
     section: "cpu-control",
-    title: "Implement RET, RETI, and RST",
-    goal: "Pop PC, restore IME when appropriate, and support restart vectors.",
+    title: "Implement RET",
+    goal: "Pop a little-endian return address from the stack into PC.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "055",
     section: "cpu-stack",
-    title: "Implement PUSH and POP",
-    goal: "Move register pairs through stack memory with Game Boy byte order.",
+    title: "Push a 16-bit stack word",
+    goal: "Decrement SP and write a word with Game Boy stack byte order.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -456,16 +456,16 @@
   %{
     id: "057",
     section: "cpu-control",
-    title: "Implement ADD HL,rr and SP math",
-    goal: "Handle 16-bit arithmetic and the signed ADD SP,e8 flag rules.",
+    title: "Compute signed SP addition",
+    goal: "Add a signed byte to SP and derive the SM83 half-carry and carry flags.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "058",
     section: "cpu-control",
-    title: "Implement rotates on A",
-    goal: "Support RLCA, RRCA, RLA, and RRA with correct zero flag behavior.",
+    title: "Implement RLCA",
+    goal: "Rotate A left circularly and place the outgoing bit in carry.",
     files: ["lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -504,16 +504,16 @@
   %{
     id: "063",
     section: "interrupts",
-    title: "Model interrupt registers",
-    goal: "Add IE, IF, IME, ime_pending, and halted state transitions.",
+    title: "Choose a CPU instruction boundary",
+    goal: "Apply delayed IME, service pending interrupts, handle HALT, or execute an opcode.",
     files: ["lib/gb_emu/gb.ex", "lib/gb_emu/cpu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "064",
     section: "interrupts",
-    title: "Implement EI delay and DI",
-    goal: "Make EI take effect after the following instruction.",
+    title: "Implement EI",
+    goal: "Schedule IME to become active after the following instruction boundary.",
     files: ["lib/gb_emu/cpu.ex", "docs/cpu.md"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -536,8 +536,8 @@
   %{
     id: "067",
     section: "timer",
-    title: "Advance DIV",
-    goal: "Increment the internal divider by elapsed T-cycles and expose the high byte.",
+    title: "Advance timer counters",
+    goal: "Advance DIV and route enabled TIMA cycles through the selected timer period.",
     files: ["lib/gb_emu/timer.ex", "lib/gb_emu/bus.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -656,24 +656,25 @@
   %{
     id: "082",
     section: "ppu-render",
-    title: "Support signed tile addressing",
-    goal: "Map signed tile IDs through the $9000 addressing mode.",
+    title: "Project the active tile-data range",
+    goal: "Describe the LCDC-selected tile-data address range for debugger traces.",
     files: ["lib/gb_emu/ppu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "083",
     section: "ppu-render",
-    title: "Apply palettes",
-    goal: "Convert color indices through BGP, OBP0, and OBP1 shade registers.",
+    title: "Overlay sprites and apply palettes",
+    goal:
+      "Merge sprite pixels with the background and map indices through DMG palette registers.",
     files: ["lib/gb_emu/ppu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
   %{
     id: "084",
     section: "ppu-render",
-    title: "Render the window",
-    goal: "Overlay the window tile map and maintain its independent line counter.",
+    title: "Project scanline memory ranges",
+    goal: "Describe background, window, tile-data, and sprite ranges touched by a scanline.",
     files: ["lib/gb_emu/ppu.ex", "docs/ppu.md"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -696,8 +697,8 @@
   %{
     id: "087",
     section: "ppu-render",
-    title: "Merge sprites with background",
-    goal: "Honor DMG priority rules using raw background color index 0.",
+    title: "Render and store one scanline",
+    goal: "Build background/window pixels, overlay sprites, apply palettes, and store the line.",
     files: ["lib/gb_emu/ppu.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },
@@ -752,8 +753,8 @@
   %{
     id: "094",
     section: "otp",
-    title: "Pause, resume, and reset",
-    goal: "Expose safe controls for LiveView and debugger commands.",
+    title: "Pause real-time frame scheduling",
+    goal: "Mark the emulator paused and cancel its scheduled frame tick.",
     files: ["lib/gb_emu/emulator.ex"],
     checks: ["mix test test/gb_emu/emulator_debugger_test.exs"]
   },
@@ -793,8 +794,8 @@
   %{
     id: "099",
     section: "phoenix",
-    title: "Add upload forms",
-    goal: "Use LiveView uploads for legal game ROMs and optional boot ROM files.",
+    title: "Consume ROM uploads",
+    goal: "Persist optional boot and game uploads, refresh paths, and load the selected game.",
     files: ["lib/gb_emu_web/live/emulator_live.ex", "config/config.exs"],
     checks: ["mix test test/gb_emu_web/live/emulator_live_test.exs"]
   },
@@ -850,8 +851,8 @@
   %{
     id: "106",
     section: "debugger",
-    title: "Trace memory side effects",
-    goal: "Record bounded read, write, DMA, and source-location events for debugger commands.",
+    title: "Record debugger trace events",
+    goal: "Append bounded debugger events only while tracing is enabled.",
     files: ["lib/gb_emu/debugger/trace.ex", "lib/gb_emu/bus.ex"],
     checks: ["mix test test/gb_emu/debugger_test.exs"]
   },
@@ -878,8 +879,8 @@
     section: "docs-and-release",
     title: "Write the ROM and trademark policy",
     goal: "Document legal ROM/BIOS expectations before any public release.",
-    files: ["README.md", "docs/roms.md", "priv/roms/README.md"],
-    checks: ["mix test"]
+    files: ["docs/roms.md"],
+    checks: ["mix test test/gb_emulings/policy_test.exs"]
   },
   %{
     id: "110",

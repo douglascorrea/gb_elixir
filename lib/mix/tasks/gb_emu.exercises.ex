@@ -179,9 +179,10 @@ defmodule Mix.Tasks.GbEmu.Exercises do
       mix gb_emu.exercises show ID
 
     `start` creates a Git branch with one real implementation replaced by a
-    TODO and a failing exercise test. `check` runs the focused checks. `next`
-    commits the passing learner solution, creates the next branch from it, and
-    installs the next failing scaffold.
+    TODO, later targets locked, and a failing exercise test. `check` validates
+    the current solution in a disposable hydrated worktree. `next` commits the
+    passing learner solution, creates the next branch from it, and installs the
+    next failing scaffold.
 
     `next` stages and commits all changes on the dedicated exercise branch.
     Keep unrelated work out of GBEmulings branches.
@@ -260,4 +261,6 @@ defmodule Mix.Tasks.GbEmu.Exercises do
     scope = if target[:after], do: "\n  After: #{target.after}", else: ""
     "  Branch starting at: #{start}\n  Before: #{stop}#{scope}"
   end
+
+  defp target_description(%{kind: :file}), do: "  Entire file"
 end

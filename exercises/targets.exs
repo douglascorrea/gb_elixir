@@ -29,6 +29,7 @@ sessions = [["mix", "test", "test/gb_emu/emulator_sessions_test.exs"]]
 live_view = [["mix", "test", "test/gb_emu_web/live/emulator_live_test.exs"]]
 uploads = [["mix", "test", "test/gb_emu/upload_store_test.exs"]]
 release = [["mix", "test", "test/gb_emulings/release_test.exs"]]
+policy = [["mix", "test", "test/gb_emulings/policy_test.exs"]]
 
 targets = %{
   "001" =>
@@ -126,8 +127,7 @@ targets = %{
       "addr < 0xE000 ->",
       "addr < 0xFEA0 ->",
       debugger
-    )
-    |> put_in([:target, :replacement_head], "addr < 0xFE00 ->"),
+    ),
   "025" =>
     branch.(
       "lib/gb_emu/bus.ex",
@@ -145,8 +145,7 @@ targets = %{
       debugger
     ),
   "027" =>
-    branch.("lib/gb_emu/bus.ex", "def peek8(gb, addr) do", "addr < 0xFFFF ->", "end", debugger)
-    |> put_in([:target, :replacement_head], "true ->"),
+    branch.("lib/gb_emu/bus.ex", "def peek8(gb, addr) do", "addr < 0xFFFF ->", "end", debugger),
   "028" => definition.("lib/gb_emu/bus.ex", "def read16(gb, addr), do:", debugger),
   "029" =>
     branch.("lib/gb_emu/bus.ex", "defp write_io(gb, addr, v) do", "0xFF50 ->", "_ ->", debugger),
@@ -205,8 +204,7 @@ targets = %{
       "addr < 0x3000 ->",
       "addr < 0x6000 ->",
       debugger
-    )
-    |> put_in([:target, :replacement_head], "addr < 0x4000 ->"),
+    ),
   "037" =>
     branch.(
       "lib/gb_emu/bus.ex",
@@ -358,9 +356,21 @@ targets = %{
       "defp run_to_boundary(gb, command, initial, limit",
       debugger
     ),
-  "109" =>
-    definition.("exercises/workbench/release.exs", "def rom_policy_complete?(text) do", release),
-  "110" => definition.("exercises/workbench/release.exs", "def release_ready?(paths) do", release)
+  "109" => %{
+    target: %{kind: :file, file: "docs/roms.md"},
+    checks: policy
+  },
+  "110" =>
+    definition.(
+      "exercises/workbench/release.exs",
+      "def release_ready?(paths) do",
+      release ++
+        [
+          ["mix", "precommit"],
+          ["env", "MIX_ENV=prod", "mix", "assets.deploy"],
+          ["env", "MIX_ENV=prod", "mix", "release", "--overwrite"]
+        ]
+    )
 }
 
 Map.new(targets, fn {id, config} ->

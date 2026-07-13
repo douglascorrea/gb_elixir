@@ -1,15 +1,16 @@
 # GBEmulings
 
 GBEmulings is a branch-based Rustlings-style path through this Game Boy
-emulator. The command creates each exercise branch, replaces one real
-implementation with a `TODO` and a runtime failure, adds a failing test, and
-switches your working tree to that branch.
+emulator. The command creates each exercise branch, activates one real
+implementation as a failing `TODO`, locks later exercise targets, adds a
+failing test, and switches your working tree to that branch.
 
 You do not create the exercise branches or stubs manually.
 
 ## Start
 
-Begin from a clean branch containing the complete emulator, normally `master`:
+Begin from a clean branch containing the curriculum runner and reference
+implementation, normally `master`:
 
 ```sh
 git status
@@ -42,6 +43,14 @@ mix gb_emu.exercises next
 and the focused behavioral tests for that subsystem. Fix production or
 workbench code; do not edit the generated test under `test/gb_emulings/`.
 
+Later targets are compile-valid locked stubs on your branch. For validation,
+`check` creates a disposable Git worktree, copies your uncommitted solution
+into it, temporarily hydrates only the later targets from the reference commit,
+and runs the checks there. The disposable worktree is removed afterward; the
+future code on your exercise branch stays locked. This keeps the feedback about
+the exercise you are solving without placing future implementations in your
+working source.
+
 `next` does four things:
 
 1. Runs the current checks again.
@@ -57,19 +66,19 @@ commits every change there.
 The branches form a cumulative chain:
 
 ```text
-complete reference branch
-└── 001 failing scaffold
+reference branch
+└── 001 TODO + 002..110 locked
     └── 001 learner solution
-        └── 002 failing scaffold
+        └── 002 TODO + 003..110 locked
             └── 002 learner solution
                 └── ...
                     └── 110 complete emulator
 ```
 
 Your passing implementation is carried into every later branch. Code for
-topics you have not reached remains as working scaffold until its exercise
-replaces it, so each step has one intentional failure instead of many unrelated
-failures.
+topics you have not reached raises a clearly labeled `locked until its turn`
+error. Exactly one target contains the active `TODO`; `check` isolates it from
+those later stubs.
 
 ## Resume Or Inspect
 
@@ -84,14 +93,15 @@ mix gb_emu.exercises list cpu-arithmetic
 `resume` switches to an existing exercise branch. `show` is read-only and
 prints the goal, exact scaffold target, checks, and hints.
 
-To begin at a later exercise from the complete reference implementation:
+To begin at a later exercise from the reference implementation:
 
 ```sh
 mix gb_emu.exercises start 048
 ```
 
-Starting in the middle intentionally skips the earlier learner branches. Use
-plain `start` for the complete cumulative path.
+Starting in the middle intentionally uses the reference implementation for
+earlier targets and locks everything after the requested exercise. Use plain
+`start` for the complete cumulative path.
 
 ## Curriculum
 
@@ -105,6 +115,8 @@ The 110 exercises progress through:
 6. Machine integration, OTP runtime, LiveView, uploads, and debugger behavior.
 7. ROM policy and release readiness.
 
-The complete implementation remains available in the starting commit for
-comparison after attempting the hints and checks. Do not add commercial ROMs,
-proprietary boot ROMs, or other copyrighted game data to exercise branches.
+The complete implementation remains available in the recorded reference commit
+for comparison after attempting the hints and checks. Exercise 109 requires a
+real ROM/trademark policy, and exercise 110 runs precommit, asset compilation,
+and a production release build. Do not add commercial ROMs, proprietary boot
+ROMs, or other copyrighted game data to exercise branches.

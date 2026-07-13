@@ -27,6 +27,7 @@ defmodule GbEmu.Exercises.RunnerTest do
       """
       Code.require_file("lib/demo.ex")
       if Demo.first() != 1, do: System.halt(1)
+      if Demo.second() != 2, do: System.halt(1)
       """
     )
 
@@ -45,8 +46,8 @@ defmodule GbEmu.Exercises.RunnerTest do
     git!(root, ["commit", "-m", "Initial solution"])
 
     exercises = [
-      exercise("001", "First step", "def first, do: 1", "check_first.exs"),
-      exercise("002", "Second step", "def second, do: 2", "check_second.exs")
+      exercise("001", "First step", "def first, do:", "check_first.exs"),
+      exercise("002", "Second step", "def second, do:", "check_second.exs")
     ]
 
     on_exit(fn -> File.rm_rf!(root) end)
@@ -66,6 +67,9 @@ defmodule GbEmu.Exercises.RunnerTest do
     source = File.read!(Path.join(context.root, "lib/demo.ex"))
     assert source =~ "TODO: exercise 001"
     assert source =~ ~s(raise "GBEmulings exercise 001 is not implemented")
+    assert source =~ ~s(raise "GBEmulings exercise 002 is locked until its turn")
+    refute source =~ "TODO: exercise 002"
+    refute source =~ "def second, do: 2"
 
     assert File.exists?(Path.join(context.root, "test/gb_emulings/001_exercise_test.exs"))
     assert {:error, message} = Runner.check(root: context.root, exercises: context.exercises)
@@ -76,18 +80,13 @@ defmodule GbEmu.Exercises.RunnerTest do
     assert {:ok, _result} =
              Runner.start("001", root: context.root, exercises: context.exercises)
 
-    File.write!(
-      Path.join(context.root, "lib/demo.ex"),
-      """
-      defmodule Demo do
-        def first, do: 1
-        def second, do: 2
-      end
-      """
-    )
+    solve_first!(context.root)
 
     assert {:ok, checked} = Runner.check(root: context.root, exercises: context.exercises)
     assert checked.exercise.id == "001"
+
+    source = File.read!(Path.join(context.root, "lib/demo.ex"))
+    assert source =~ ~s(raise "GBEmulings exercise 002 is locked until its turn")
 
     assert {:ok, result} = Runner.next(root: context.root, exercises: context.exercises)
 
@@ -100,6 +99,7 @@ defmodule GbEmu.Exercises.RunnerTest do
     assert source =~ "def first, do: 1"
     assert source =~ "TODO: exercise 002"
     assert source =~ ~s(raise "GBEmulings exercise 002 is not implemented")
+    refute source =~ "locked until its turn"
 
     log = git!(context.root, ["log", "--format=%s", "-3"])
     assert log =~ "Solve exercise 001: First step"
@@ -120,15 +120,7 @@ defmodule GbEmu.Exercises.RunnerTest do
     assert {:ok, _result} =
              Runner.start("001", root: context.root, exercises: context.exercises)
 
-    File.write!(
-      Path.join(context.root, "lib/demo.ex"),
-      """
-      defmodule Demo do
-        def first, do: 1
-        def second, do: 2
-      end
-      """
-    )
+    solve_first!(context.root)
 
     test_path = Path.join(context.root, "test/gb_emulings/001_exercise_test.exs")
     File.write!(test_path, File.read!(test_path) <> "\n# changed by learner\n")
@@ -162,21 +154,36 @@ defmodule GbEmu.Exercises.RunnerTest do
     assert {:ok, _result} =
              Runner.start("001", root: context.root, exercises: context.exercises)
 
-    File.write!(
-      Path.join(context.root, "lib/demo.ex"),
-      """
-      defmodule Demo do
-        def first, do: 1
-        def second, do: 2
-      end
-      """
-    )
+    solve_first!(context.root)
 
     git!(context.root, ["branch", "-m", "codex/renamed-exercise"])
 
     assert {:error, message} = Runner.next(root: context.root, exercises: context.exercises)
     assert message =~ "expected exercise branch"
     assert current_branch(context.root) == "codex/renamed-exercise"
+  end
+
+  test "start does not create or switch to a partial branch when a future target is invalid",
+       context do
+    [first, second] = context.exercises
+    invalid_second = put_in(second, [:target, :anchor], "def missing, do:")
+
+    assert {:error, message} =
+             Runner.start("001", root: context.root, exercises: [first, invalid_second])
+
+    assert message =~ "definition anchor"
+    assert current_branch(context.root) == "master"
+    assert git_status(context.root) == ""
+
+    {_output, status} =
+      System.cmd(
+        "git",
+        ["show-ref", "--verify", "--quiet", "refs/heads/codex/gbemulings/001-first-step"],
+        cd: context.root,
+        stderr_to_stdout: true
+      )
+
+    assert status == 1
   end
 
   defp exercise(id, title, anchor, check) do
@@ -194,6 +201,20 @@ defmodule GbEmu.Exercises.RunnerTest do
 
   defp current_branch(root), do: git!(root, ["branch", "--show-current"])
   defp git_status(root), do: git!(root, ["status", "--porcelain"])
+
+  defp solve_first!(root) do
+    path = Path.join(root, "lib/demo.ex")
+
+    source =
+      path
+      |> File.read!()
+      |> String.replace(
+        ~s(  def first, do: raise "GBEmulings exercise 001 is not implemented" # TODO: exercise 001 - First step),
+        "  def first, do: 1"
+      )
+
+    File.write!(path, source)
+  end
 
   defp git!(root, args) do
     case System.cmd("git", args, cd: root, stderr_to_stdout: true) do

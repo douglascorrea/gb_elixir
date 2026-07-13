@@ -147,7 +147,9 @@ upload storage, and release work.
 
 The runner creates and switches exercise branches automatically. Each branch
 contains one real implementation replaced by a `TODO`, a failing test, and the
-passing work carried forward from every previous exercise.
+passing work carried forward from every previous exercise. Later targets remain
+locked until their turn; `check` hydrates them only inside a disposable
+validation worktree so they do not obscure the current exercise.
 
 ```sh
 mix gb_emu.exercises start

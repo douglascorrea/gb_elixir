@@ -28,6 +28,15 @@ defmodule Mix.Tasks.GbEmu.ExercisesTest do
     assert output =~ "addr < 0x4000 ->"
   end
 
+  test "show renders a whole-file policy scaffold" do
+    output = run_task(["show", "109"])
+
+    assert output =~ "109 Write the ROM and trademark policy"
+    assert output =~ "docs/roms.md"
+    assert output =~ "Entire file"
+    assert output =~ "mix test test/gb_emulings/policy_test.exs"
+  end
+
   defp run_task(args) do
     Mix.Task.reenable("gb_emu.exercises")
     capture_io(fn -> Mix.Tasks.GbEmu.Exercises.run(args) end)
