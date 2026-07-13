@@ -14,7 +14,7 @@ implementation, normally `master`:
 
 ```sh
 git status
-mix gb_emu.exercises start
+./gbemulings start
 ```
 
 The command creates and switches to a branch such as:
@@ -30,13 +30,13 @@ It also prints the exact source file containing the new `TODO`.
 The complete loop is:
 
 ```sh
-mix gb_emu.exercises status
-mix gb_emu.exercises hint
+./gbemulings status
+./gbemulings hint
 
 # Edit the TODO in the source file printed by the command.
 
-mix gb_emu.exercises check
-mix gb_emu.exercises next
+./gbemulings check
+./gbemulings next
 ```
 
 `check` rejects the scaffold marker and runs both the generated exercise test
@@ -83,11 +83,11 @@ those later stubs.
 ## Resume Or Inspect
 
 ```sh
-mix gb_emu.exercises resume 048
-mix gb_emu.exercises show 048
-mix gb_emu.exercises hint 048
-mix gb_emu.exercises list
-mix gb_emu.exercises list cpu-arithmetic
+./gbemulings resume 048
+./gbemulings show 048
+./gbemulings hint 048
+./gbemulings list
+./gbemulings list cpu-arithmetic
 ```
 
 `resume` switches to an existing exercise branch. `show` is read-only and
@@ -96,7 +96,7 @@ prints the goal, exact scaffold target, checks, and hints.
 To begin at a later exercise from the reference implementation:
 
 ```sh
-mix gb_emu.exercises start 048
+./gbemulings start 048
 ```
 
 Starting in the middle intentionally uses the reference implementation for

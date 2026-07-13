@@ -4,14 +4,14 @@ defmodule Mix.Tasks.GbEmu.Exercises do
 
   ## Examples
 
-      mix gb_emu.exercises start
-      mix gb_emu.exercises check
-      mix gb_emu.exercises next
-      mix gb_emu.exercises status
-      mix gb_emu.exercises hint
-      mix gb_emu.exercises resume 048
-      mix gb_emu.exercises list
-      mix gb_emu.exercises show 048
+      ./gbemulings start
+      ./gbemulings check
+      ./gbemulings next
+      ./gbemulings status
+      ./gbemulings hint
+      ./gbemulings resume 048
+      ./gbemulings list
+      ./gbemulings show 048
   """
 
   use Mix.Task
@@ -61,7 +61,7 @@ defmodule Mix.Tasks.GbEmu.Exercises do
   defp dispatch([id], exercises), do: show!(exercises, id)
 
   defp dispatch(args, _exercises) do
-    Mix.raise("unknown command: #{Enum.join(args, " ")}; run `mix gb_emu.exercises help`")
+    Mix.raise("unknown command: #{Enum.join(args, " ")}; run `./gbemulings help`")
   end
 
   defp start!(id) do
@@ -74,9 +74,7 @@ defmodule Mix.Tasks.GbEmu.Exercises do
   defp check! do
     case Runner.check() do
       {:ok, result} ->
-        Mix.shell().info(
-          "\nExercise #{result.exercise.id} passes. Run `mix gb_emu.exercises next`."
-        )
+        Mix.shell().info("\nExercise #{result.exercise.id} passes. Run `./gbemulings next`.")
 
       {:error, reason} ->
         Mix.raise(reason)
@@ -162,22 +160,22 @@ defmodule Mix.Tasks.GbEmu.Exercises do
     A committed failing scaffold is now in #{result.exercise.target.file}.
     Replace the TODO implementation, then run:
 
-      mix gb_emu.exercises check
-      mix gb_emu.exercises next
+      ./gbemulings check
+      ./gbemulings next
     """)
   end
 
   defp print_help do
     Mix.shell().info("""
     Usage:
-      mix gb_emu.exercises start [ID]
-      mix gb_emu.exercises check
-      mix gb_emu.exercises next
-      mix gb_emu.exercises status
-      mix gb_emu.exercises hint [ID]
-      mix gb_emu.exercises resume ID
-      mix gb_emu.exercises list [SECTION]
-      mix gb_emu.exercises show ID
+      ./gbemulings start [ID]
+      ./gbemulings check
+      ./gbemulings next
+      ./gbemulings status
+      ./gbemulings hint [ID]
+      ./gbemulings resume ID
+      ./gbemulings list [SECTION]
+      ./gbemulings show ID
 
     `start` creates a Git branch with one real implementation replaced by a
     TODO, later targets locked, and a failing exercise test. `check` validates
@@ -203,8 +201,8 @@ defmodule Mix.Tasks.GbEmu.Exercises do
     First exercise:
       #{first.id} #{first.title}
 
-    Run `mix gb_emu.exercises start` to create and switch to the first broken branch.
-    Run `mix gb_emu.exercises help` for the complete command loop.
+    Run `./gbemulings start` to create and switch to the first broken branch.
+    Run `./gbemulings help` for the complete command loop.
     """)
   end
 

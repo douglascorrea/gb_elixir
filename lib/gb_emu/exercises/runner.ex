@@ -297,7 +297,7 @@ defmodule GbEmu.Exercises.Runner do
       {:ok, state}
     else
       {:error, :enoent} ->
-        {:error, "no active GBEmulings exercise; run `mix gb_emu.exercises start` first"}
+        {:error, "no active GBEmulings exercise; run `./gbemulings start` first"}
 
       {:error, reason} ->
         {:error, "could not read GBEmulings state: #{inspect(reason)}"}

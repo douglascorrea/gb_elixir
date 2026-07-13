@@ -6,10 +6,15 @@ defmodule Mix.Tasks.GbEmu.ExercisesTest do
   test "help explains the branch-based red-green workflow" do
     output = run_task(["help"])
 
-    assert output =~ "mix gb_emu.exercises start"
-    assert output =~ "mix gb_emu.exercises check"
-    assert output =~ "mix gb_emu.exercises next"
+    assert output =~ "./gbemulings start"
+    assert output =~ "./gbemulings check"
+    assert output =~ "./gbemulings next"
     assert output =~ "creates a Git branch"
+  end
+
+  test "repository command is executable shell" do
+    assert Bitwise.band(File.stat!("gbemulings").mode, 0o111) != 0
+    assert {"", 0} = System.cmd("sh", ["-n", "gbemulings"], stderr_to_stdout: true)
   end
 
   test "show includes the concrete scaffold and executable checks" do

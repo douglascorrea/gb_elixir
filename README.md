@@ -152,10 +152,10 @@ locked until their turn; `check` hydrates them only inside a disposable
 validation worktree so they do not obscure the current exercise.
 
 ```sh
-mix gb_emu.exercises start
+./gbemulings start
 # Implement the printed TODO.
-mix gb_emu.exercises check
-mix gb_emu.exercises next
+./gbemulings check
+./gbemulings next
 ```
 
 `next` stages and commits the dedicated exercise branch before creating the
