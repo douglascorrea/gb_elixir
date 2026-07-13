@@ -124,7 +124,7 @@ targets = %{
     branch.(
       "lib/gb_emu/bus.ex",
       "def peek8(gb, addr) do",
-      "addr < 0xE000 ->",
+      "addr < 0xFE00 ->",
       "addr < 0xFEA0 ->",
       debugger
     ),
@@ -145,7 +145,13 @@ targets = %{
       debugger
     ),
   "027" =>
-    branch.("lib/gb_emu/bus.ex", "def peek8(gb, addr) do", "addr < 0xFFFF ->", "end", debugger),
+    branch.(
+      "lib/gb_emu/bus.ex",
+      "def peek8(gb, addr) do",
+      "addr < 0xFFFF ->",
+      "true ->",
+      debugger
+    ),
   "028" => definition.("lib/gb_emu/bus.ex", "def read16(gb, addr), do:", debugger),
   "029" =>
     branch.("lib/gb_emu/bus.ex", "defp write_io(gb, addr, v) do", "0xFF50 ->", "_ ->", debugger),
@@ -201,7 +207,7 @@ targets = %{
     branch.(
       "lib/gb_emu/bus.ex",
       "defp mbc_write(%{mbc: :mbc5}",
-      "addr < 0x3000 ->",
+      "addr < 0x4000 ->",
       "addr < 0x6000 ->",
       debugger
     ),

@@ -192,8 +192,8 @@
   %{
     id: "024",
     section: "bus",
-    title: "Map work RAM and echo RAM",
-    goal: "Share WRAM storage through $C000-$DFFF and its $E000-$FDFF mirror.",
+    title: "Map echo RAM",
+    goal: "Mirror $E000-$FDFF onto the existing work RAM storage.",
     files: ["lib/gb_emu/bus.ex", "docs/memory.md"],
     checks: ["mix test test/gb_emu/debugger_test.exs"]
   },
@@ -216,8 +216,8 @@
   %{
     id: "027",
     section: "bus",
-    title: "Map HRAM and IE",
-    goal: "Implement $FF80-$FFFE high RAM and $FFFF interrupt enable.",
+    title: "Map HRAM",
+    goal: "Read $FF80-$FFFE through the high RAM atomics region.",
     files: ["lib/gb_emu/bus.ex"],
     checks: ["mix test test/gb_emu/debugger_test.exs"]
   },
@@ -288,8 +288,8 @@
   %{
     id: "036",
     section: "mbc",
-    title: "Switch MBC5 ROM banks",
-    goal: "Implement the 9-bit MBC5 ROM bank number.",
+    title: "Set the ninth MBC5 ROM-bank bit",
+    goal: "Map $3000-$3FFF writes onto bit 8 without disturbing the low bank byte.",
     files: ["lib/gb_emu/bus.ex"],
     checks: ["mix test test/gb_emu/machine_test.exs"]
   },

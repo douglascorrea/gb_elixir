@@ -20,6 +20,7 @@ defmodule Mix.Tasks.GbEmu.Exercises do
   alias GbEmu.Exercises.Runner
 
   @shortdoc "Run the branch-based GBEmulings exercise track"
+  @requirements ["loadpaths"]
 
   @impl Mix.Task
   def run(args) do
