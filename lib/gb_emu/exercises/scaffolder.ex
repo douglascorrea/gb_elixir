@@ -127,9 +127,11 @@ defmodule GbEmu.Exercises.Scaffolder do
           reference.end_line - reference.start_line + 1
         )
 
+      current_start_line = scaffold_start_line(current_lines, current.start_line)
+
       {:ok,
        current_lines
-       |> Enum.take(current.start_line - 1)
+       |> Enum.take(current_start_line - 1)
        |> Kernel.++(replacement)
        |> Kernel.++(Enum.drop(current_lines, current.end_line))
        |> Enum.join("\n")}
@@ -143,12 +145,14 @@ defmodule GbEmu.Exercises.Scaffolder do
     with {:ok, current_start, current_stop} <- branch_span(current_lines, target),
          {:ok, solution_start, solution_stop} <- branch_span(solution_lines, target) do
       replacement = Enum.slice(solution_lines, solution_start, solution_stop - solution_start)
+      restore_start = scaffold_start_line(current_lines, current_start + 1) - 1
+      restore_stop = scaffold_start_line(current_lines, current_stop + 1) - 1
 
       {:ok,
        current_lines
-       |> Enum.take(current_start)
+       |> Enum.take(restore_start)
        |> Kernel.++(replacement)
-       |> Kernel.++(Enum.drop(current_lines, current_stop))
+       |> Kernel.++(Enum.drop(current_lines, restore_stop))
        |> Enum.join("\n")}
     end
   end
@@ -217,8 +221,9 @@ defmodule GbEmu.Exercises.Scaffolder do
       case definition.metadata[:do] do
         nil ->
           with {:ok, signature} <- one_line_signature(original_line) do
-            todo = if mode == :active, do: " # #{marker(exercise)} - #{exercise.title}", else: ""
-            {:ok, ["#{signature} raise #{inspect(failure)}#{todo}"]}
+            comment = one_line_comment(exercise, mode, indentation)
+            short_failure = short_failure(exercise, mode)
+            {:ok, [comment, "#{signature} raise(#{inspect(short_failure)})"]}
           end
 
         do_metadata ->
@@ -236,9 +241,11 @@ defmodule GbEmu.Exercises.Scaffolder do
       end
 
     with {:ok, replacement} <- replacement do
+      start_line = scaffold_start_line(lines, definition.start_line)
+
       {:ok,
        lines
-       |> Enum.take(definition.start_line - 1)
+       |> Enum.take(start_line - 1)
        |> Kernel.++(replacement)
        |> Kernel.++(Enum.drop(lines, definition.end_line))
        |> Enum.join("\n")}
@@ -267,21 +274,31 @@ defmodule GbEmu.Exercises.Scaffolder do
     with {:ok, start_index, stop_index} <- branch_span(lines, target),
          {:ok, branch_head} <- branch_head(Enum.at(lines, start_index), target) do
       indentation = leading_whitespace(branch_head)
-
-      todo =
-        if mode == :active,
-          do: ["#{indentation}  # #{marker(exercise)} - #{exercise.title}"],
-          else: []
+      original_line = Enum.at(lines, start_index)
 
       replacement =
-        [branch_head] ++
-          todo ++ ["#{indentation}  raise #{inspect(failure_message(exercise, mode))}"]
+        if one_line_branch?(original_line) do
+          comment = one_line_comment(exercise, mode, indentation)
+          short_failure = short_failure(exercise, mode)
+          [comment, "#{branch_head} raise(#{inspect(short_failure)})"]
+        else
+          todo =
+            if mode == :active,
+              do: ["#{indentation}  # #{marker(exercise)} - #{exercise.title}"],
+              else: []
+
+          [branch_head] ++
+            todo ++ ["#{indentation}  raise #{inspect(failure_message(exercise, mode))}", ""]
+        end
+
+      replace_start = scaffold_start_line(lines, start_index + 1) - 1
+      replace_stop = scaffold_start_line(lines, stop_index + 1) - 1
 
       {:ok,
        lines
-       |> Enum.take(start_index)
+       |> Enum.take(replace_start)
        |> Kernel.++(replacement)
-       |> Kernel.++(Enum.drop(lines, stop_index))
+       |> Kernel.++(Enum.drop(lines, replace_stop))
        |> Enum.join("\n")}
     end
   end
@@ -325,8 +342,44 @@ defmodule GbEmu.Exercises.Scaffolder do
     end
   end
 
+  defp one_line_branch?(line) do
+    case :binary.match(line, "->") do
+      {index, 2} ->
+        line
+        |> binary_part(index + 2, byte_size(line) - index - 2)
+        |> String.trim()
+        |> Kernel.!=("")
+
+      :nomatch ->
+        false
+    end
+  end
+
   defp failure_message(exercise, :active), do: not_implemented_message(exercise)
   defp failure_message(exercise, :pending), do: locked_message(exercise)
+
+  defp short_failure(exercise, :active), do: "TODO #{exercise.id}"
+  defp short_failure(exercise, :pending), do: "locked #{exercise.id}"
+
+  defp one_line_comment(exercise, :active, indentation) do
+    "#{indentation}# #{marker(exercise)} - #{exercise.title}"
+  end
+
+  defp one_line_comment(exercise, :pending, indentation) do
+    "#{indentation}# #{locked_message(exercise)}"
+  end
+
+  defp scaffold_start_line(lines, definition_start_line) do
+    previous = Enum.at(lines, definition_start_line - 2, "") |> String.trim()
+
+    if String.starts_with?(previous, "# TODO: exercise ") or
+         (String.starts_with?(previous, "# GBEmulings exercise ") and
+            String.ends_with?(previous, " is locked until its turn")) do
+      definition_start_line - 1
+    else
+      definition_start_line
+    end
+  end
 
   defp leading_whitespace(line) do
     line

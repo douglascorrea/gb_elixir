@@ -99,6 +99,51 @@ defmodule GbEmu.Exercises.ScaffolderTest do
     assert plan.contents =~ "TODO: exercise 022"
   end
 
+  test "keeps one-line branches formatter-stable and removes their scaffold comment on hydration" do
+    root = temporary_root!()
+    path = Path.join(root, "lib/demo.ex")
+
+    solution =
+      """
+      defmodule Demo do
+        def value(kind) do
+          case kind do
+            :one -> 1
+            :two -> 2
+            :three -> 3
+          end
+        end
+      end
+      """
+
+    File.write!(path, solution)
+
+    exercise = %{
+      id: "025",
+      title: "Implement a compact branch",
+      target: %{
+        kind: :branch,
+        file: "lib/demo.ex",
+        start: ":two ->",
+        stop: ":three ->"
+      }
+    }
+
+    assert {:ok, pending} = Scaffolder.plan(root, exercise, :pending)
+    assert pending.contents =~ "# GBEmulings exercise 025 is locked until its turn"
+    assert pending.contents =~ ":two -> raise(\"locked 025\")"
+
+    formatted = pending.contents |> Code.format_string!() |> IO.iodata_to_binary()
+    assert String.trim_trailing(pending.contents) == formatted
+
+    File.write!(path, pending.contents)
+
+    assert {:ok, [restored]} =
+             Scaffolder.hydration_plan(root, [exercise], %{"lib/demo.ex" => solution})
+
+    assert restored.contents == solution
+  end
+
   test "reports malformed Elixir source without crashing" do
     root =
       Path.join(
@@ -150,7 +195,7 @@ defmodule GbEmu.Exercises.ScaffolderTest do
     assert {:ok, active} = Scaffolder.plan(root, exercise)
     assert active.contents =~ "# TODO: exercise 024 - Implement value"
     assert active.contents =~ "def value(input), do:"
-    assert active.contents =~ "GBEmulings exercise 024 is not implemented"
+    assert active.contents =~ "raise(\"TODO 024\")"
   end
 
   test "builds one active scaffold and locks every later target" do

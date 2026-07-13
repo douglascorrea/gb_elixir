@@ -66,8 +66,8 @@ defmodule GbEmu.Exercises.RunnerTest do
 
     source = File.read!(Path.join(context.root, "lib/demo.ex"))
     assert source =~ "TODO: exercise 001"
-    assert source =~ ~s(raise "GBEmulings exercise 001 is not implemented")
-    assert source =~ ~s(raise "GBEmulings exercise 002 is locked until its turn")
+    assert source =~ "raise(\"TODO 001\")"
+    assert source =~ "# GBEmulings exercise 002 is locked until its turn"
     refute source =~ "TODO: exercise 002"
     refute source =~ "def second, do: 2"
 
@@ -86,7 +86,7 @@ defmodule GbEmu.Exercises.RunnerTest do
     assert checked.exercise.id == "001"
 
     source = File.read!(Path.join(context.root, "lib/demo.ex"))
-    assert source =~ ~s(raise "GBEmulings exercise 002 is locked until its turn")
+    assert source =~ "# GBEmulings exercise 002 is locked until its turn"
 
     assert {:ok, result} = Runner.next(root: context.root, exercises: context.exercises)
 
@@ -98,7 +98,7 @@ defmodule GbEmu.Exercises.RunnerTest do
     source = File.read!(Path.join(context.root, "lib/demo.ex"))
     assert source =~ "def first, do: 1"
     assert source =~ "TODO: exercise 002"
-    assert source =~ ~s(raise "GBEmulings exercise 002 is not implemented")
+    assert source =~ "raise(\"TODO 002\")"
     refute source =~ "locked until its turn"
 
     log = git!(context.root, ["log", "--format=%s", "-3"])
@@ -209,7 +209,8 @@ defmodule GbEmu.Exercises.RunnerTest do
       path
       |> File.read!()
       |> String.replace(
-        ~s(  def first, do: raise "GBEmulings exercise 001 is not implemented" # TODO: exercise 001 - First step),
+        "  # TODO: exercise 001 - First step\n" <>
+          "  def first, do: raise(\"TODO 001\")",
         "  def first, do: 1"
       )
 

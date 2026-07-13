@@ -21,6 +21,7 @@ defmodule GbEmu.Exercises.CatalogTest do
 
       if Path.extname(plan.relative_path) in [".ex", ".exs"] do
         assert {:ok, _quoted} = Code.string_to_quoted(plan.contents)
+        assert_formatted(plan.contents, plan.relative_path)
       end
     end
   end
@@ -41,6 +42,7 @@ defmodule GbEmu.Exercises.CatalogTest do
 
     for plan <- plans, Path.extname(plan.relative_path) in [".ex", ".exs"] do
       assert {:ok, _quoted} = Code.string_to_quoted(plan.contents)
+      assert_formatted(plan.contents, plan.relative_path)
     end
   end
 
@@ -128,5 +130,11 @@ defmodule GbEmu.Exercises.CatalogTest do
 
   defp write_plans!(plans) do
     Enum.each(plans, fn plan -> File.write!(plan.path, plan.contents) end)
+  end
+
+  defp assert_formatted(source, path) do
+    {formatter, _opts} = Mix.Tasks.Format.formatter_for_file(path)
+    formatted = source |> formatter.() |> IO.iodata_to_binary()
+    assert source == formatted
   end
 end
