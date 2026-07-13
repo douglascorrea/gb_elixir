@@ -508,31 +508,32 @@ defmodule GbEmu.CPU do
     idx = op &&& 7
 
     case op >>> 6 do
-      0 ->
-        {v, extra} = reg_get(gb, idx)
-        {r, f} = cb_rot(op >>> 3 &&& 7, v, gb.f)
-        {gb, extra2} = reg_set(%{gb | f: f}, idx, r)
-        {gb, 8 + extra + extra2}
-
-      1 ->
-        {v, extra} = reg_get(gb, idx)
-        bit = op >>> 3 &&& 7
-
-        f =
-          (gb.f &&& @c) ||| @h ||| if((v &&& 1 <<< bit) == 0, do: @z, else: 0)
-
-        {%{gb | f: f}, 8 + extra}
-
-      2 ->
-        {v, extra} = reg_get(gb, idx)
-        {gb, extra2} = reg_set(gb, idx, v &&& bnot(1 <<< (op >>> 3 &&& 7)))
-        {gb, 8 + extra + extra2}
-
-      3 ->
-        {v, extra} = reg_get(gb, idx)
-        {gb, extra2} = reg_set(gb, idx, v ||| 1 <<< (op >>> 3 &&& 7))
-        {gb, 8 + extra + extra2}
+      0 -> cb_execute_rotate(op, gb, idx)
+      1 -> cb_execute_bit(op, gb, idx)
+      _ -> cb_execute_update(op, gb, idx)
     end
+  end
+
+  defp cb_execute_rotate(op, gb, idx) do
+    {value, extra} = reg_get(gb, idx)
+    {result, flags} = cb_rot(op >>> 3 &&& 7, value, gb.f)
+    {gb, write_extra} = reg_set(%{gb | f: flags}, idx, result)
+    {gb, 8 + extra + write_extra}
+  end
+
+  defp cb_execute_bit(op, gb, idx) do
+    {value, extra} = reg_get(gb, idx)
+    bit = op >>> 3 &&& 7
+    flags = (gb.f &&& @c) ||| @h ||| if((value &&& 1 <<< bit) == 0, do: @z, else: 0)
+    {%{gb | f: flags}, 8 + extra}
+  end
+
+  defp cb_execute_update(op, gb, idx) do
+    {value, extra} = reg_get(gb, idx)
+    bit = 1 <<< (op >>> 3 &&& 7)
+    result = if op >>> 6 == 2, do: value &&& bnot(bit), else: value ||| bit
+    {gb, write_extra} = reg_set(gb, idx, result)
+    {gb, 8 + extra + write_extra}
   end
 
   # returns {result, flags}

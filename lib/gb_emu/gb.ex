@@ -102,32 +102,22 @@ defmodule GbEmu.GB do
 
     boot_kind = if GbEmu.BootRom.minimal?(boot), do: :minimal, else: :file
 
-    mbc =
-      case :binary.at(rom, 0x147) do
-        0x00 -> :none
-        t when t in 0x01..0x03 -> :mbc1
-        t when t in 0x19..0x1E -> :mbc5
-        0x08 -> :none
-        0x09 -> :none
-        other -> raise "unsupported cartridge type 0x#{Integer.to_string(other, 16)}"
-      end
+    mbc = rom |> cartridge_type() |> mbc_for()
 
     rom_banks = max(div(byte_size(rom), 0x4000), 2)
 
-    gb = %__MODULE__{
-      rom: rom,
-      boot: boot,
-      boot_kind: boot_kind,
-      boot_mode: boot_mode,
-      mbc: mbc,
-      rom_bank_mask: rom_banks - 1,
-      vram: :atomics.new(0x2000, signed: false),
-      wram: :atomics.new(0x2000, signed: false),
-      oam: :atomics.new(0xA0, signed: false),
-      hram: :atomics.new(0x7F, signed: false),
-      extram: :atomics.new(0x8000, signed: false),
-      io_misc: :atomics.new(0x80, signed: false)
-    }
+    gb =
+      struct!(
+        __MODULE__,
+        Map.merge(allocate_memory(), %{
+          rom: rom,
+          boot: boot,
+          boot_kind: boot_kind,
+          boot_mode: boot_mode,
+          mbc: mbc,
+          rom_bank_mask: rom_banks - 1
+        })
+      )
 
     # The open boot stub skips the real BIOS logo/checksum path. Commercial
     # games (Tetris, etc.) expect the post-boot register state at $0100.
@@ -148,22 +138,44 @@ defmodule GbEmu.GB do
   def ensure_decode_table do
     case :persistent_term.get(:gb_tile_decode, nil) do
       nil ->
-        table =
-          for pair <- 0..0xFFFF do
-            lo = pair &&& 0xFF
-            hi = pair >>> 8
-
-            for bit <- 7..0//-1 do
-              (lo >>> bit &&& 1) ||| (hi >>> bit &&& 1) <<< 1
-            end
-          end
-          |> List.to_tuple()
-
-        :persistent_term.put(:gb_tile_decode, table)
+        :persistent_term.put(:gb_tile_decode, build_decode_table())
         :ok
 
       _ ->
         :ok
     end
+  end
+
+  defp allocate_memory do
+    %{
+      vram: :atomics.new(0x2000, signed: false),
+      wram: :atomics.new(0x2000, signed: false),
+      oam: :atomics.new(0xA0, signed: false),
+      hram: :atomics.new(0x7F, signed: false),
+      extram: :atomics.new(0x8000, signed: false),
+      io_misc: :atomics.new(0x80, signed: false)
+    }
+  end
+
+  defp build_decode_table do
+    for pair <- 0..0xFFFF do
+      low = pair &&& 0xFF
+      high = pair >>> 8
+
+      for bit <- 7..0//-1 do
+        (low >>> bit &&& 1) ||| (high >>> bit &&& 1) <<< 1
+      end
+    end
+    |> List.to_tuple()
+  end
+
+  defp cartridge_type(rom), do: :binary.at(rom, 0x147)
+
+  defp mbc_for(type) when type in [0x00, 0x08, 0x09], do: :none
+  defp mbc_for(type) when type in 0x01..0x03, do: :mbc1
+  defp mbc_for(type) when type in 0x19..0x1E, do: :mbc5
+
+  defp mbc_for(other) do
+    raise "unsupported cartridge type 0x#{Integer.to_string(other, 16)}"
   end
 end
