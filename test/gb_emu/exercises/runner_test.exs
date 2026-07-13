@@ -25,6 +25,8 @@ defmodule GbEmu.Exercises.RunnerTest do
     File.write!(
       Path.join(root, "check_first.exs"),
       """
+      build_path = System.fetch_env!("MIX_BUILD_PATH")
+      unless String.ends_with?(build_path, "_build/gbemulings/dev"), do: System.halt(1)
       Code.require_file("lib/demo.ex")
       if Demo.first() != 1, do: System.halt(1)
       if Demo.second() != 2, do: System.halt(1)

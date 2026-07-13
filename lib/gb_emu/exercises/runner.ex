@@ -234,27 +234,28 @@ defmodule GbEmu.Exercises.Runner do
         exercise.checks
       end
 
-    Enum.reduce_while(commands, :ok, fn command, :ok ->
-      normalized = normalize_command(command)
-      [executable | args] = normalized
+    normalized_commands = Enum.map(commands, &normalize_command/1)
 
-      case System.cmd(executable, args,
-             cd: check_root,
-             env: command_environment(normalized, check_root, source_root),
-             stderr_to_stdout: true
-           ) do
-        {output, 0} ->
-          print_command_output(output)
-          {:cont, :ok}
+    with :ok <- prepare_grader_builds(source_root, normalized_commands) do
+      Enum.reduce_while(normalized_commands, :ok, fn [executable | args] = command, :ok ->
+        case System.cmd(executable, args,
+               cd: check_root,
+               env: command_environment(command, source_root),
+               stderr_to_stdout: true
+             ) do
+          {output, 0} ->
+            print_command_output(output)
+            {:cont, :ok}
 
-        {output, status} ->
-          print_command_output(output)
+          {output, status} ->
+            print_command_output(output)
 
-          {:halt,
-           {:error,
-            "exercise #{exercise.id} check failed (#{status}): #{Enum.join([executable | args], " ")}"}}
-      end
-    end)
+            {:halt,
+             {:error,
+              "exercise #{exercise.id} check failed (#{status}): #{Enum.join([executable | args], " ")}"}}
+        end
+      end)
+    end
   end
 
   defp ensure_test_unchanged(root, exercise) do
@@ -439,13 +440,46 @@ defmodule GbEmu.Exercises.Runner do
   defp normalize_command(command) when is_binary(command), do: OptionParser.split(command)
   defp normalize_command(command) when is_list(command), do: command
 
-  defp command_environment(command, check_root, source_root) do
+  defp command_environment(command, source_root) do
     mix_env = effective_mix_env(command)
 
     [
       {"MIX_DEPS_PATH", Path.join(source_root, "deps")},
-      {"MIX_BUILD_PATH", Path.join([check_root, "_build", mix_env])}
+      {"MIX_BUILD_PATH", grader_build_path(source_root, mix_env)}
     ]
+  end
+
+  defp prepare_grader_builds(source_root, commands) do
+    commands
+    |> Enum.map(&effective_mix_env/1)
+    |> Enum.uniq()
+    |> Enum.reduce_while(:ok, fn mix_env, :ok ->
+      build_path = grader_build_path(source_root, mix_env)
+
+      case reset_project_build(build_path) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp grader_build_path(source_root, mix_env) do
+    Path.join([source_root, "_build", "gbemulings", mix_env])
+  end
+
+  defp reset_project_build(build_path) do
+    app = Mix.Project.config() |> Keyword.fetch!(:app) |> Atom.to_string()
+
+    [Path.join([build_path, "lib", app]), Path.join(build_path, "consolidated")]
+    |> Enum.reduce_while(:ok, fn path, :ok ->
+      case File.rm_rf(path) do
+        {:ok, _paths} ->
+          {:cont, :ok}
+
+        {:error, reason, failed_path} ->
+          {:halt, {:error, "could not reset grader build at #{failed_path}: #{inspect(reason)}"}}
+      end
+    end)
   end
 
   defp effective_mix_env(["env" | args]) do
