@@ -50,7 +50,7 @@ defmodule GbEmu.Machine do
 
     serial_selector =
       if is_nil(gb.serial_cycles) do
-        "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do: gb"
+        "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do:"
       else
         "defp step_serial(gb, cycles) do"
       end
