@@ -56,6 +56,23 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
 
+  parse_check_origin = fn
+    nil, host ->
+      ["//#{host}"]
+
+    value, host ->
+      value
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> case do
+        [] -> ["//#{host}"]
+        origins -> origins
+      end
+  end
+
+  check_origin = parse_check_origin.(System.get_env("PHX_CHECK_ORIGIN"), host)
+
   config :gb_emu, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   bind_ip = parse_ipv4.(System.get_env("BIND_IP", "127.0.0.1"))
@@ -68,7 +85,8 @@ if config_env() == :prod do
       ip: bind_ip,
       port: port
     ],
-    secret_key_base: secret_key_base
+    secret_key_base: secret_key_base,
+    check_origin: check_origin
 
   # ## SSL Support
   #
