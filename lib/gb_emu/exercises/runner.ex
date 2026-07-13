@@ -193,7 +193,7 @@ defmodule GbEmu.Exercises.Runner do
 
   defp ensure_formatted(root) do
     if File.exists?(Path.join(root, "mix.exs")) do
-      case System.cmd("mix", ["format", "--check-formatted"],
+      case System.cmd("mix", ["format", "--check-formatted", "--no-compile"],
              cd: root,
              stderr_to_stdout: true
            ) do
