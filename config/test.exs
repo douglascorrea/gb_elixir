@@ -10,6 +10,9 @@ config :gb_emu, GbEmuWeb.Endpoint,
 # In test we don't send emails
 config :gb_emu, GbEmu.Mailer, adapter: Swoosh.Adapters.Test
 
+# Keep tests isolated from user-supplied ROMs ignored under priv/roms/.
+config :gb_emu, roms_dir: Path.expand("../tmp/test-roms", __DIR__)
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 

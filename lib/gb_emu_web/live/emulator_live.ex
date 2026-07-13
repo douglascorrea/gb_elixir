@@ -280,13 +280,25 @@ defmodule GbEmuWeb.EmulatorLive do
   end
 
   defp list_roms do
-    Path.join(:code.priv_dir(:gb_emu), "roms")
-    |> File.ls!()
-    |> Enum.filter(&String.ends_with?(&1, ".gb"))
-    |> Enum.sort()
+    case File.ls(roms_dir()) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(&String.ends_with?(&1, ".gb"))
+        |> Enum.sort()
+
+      {:error, :enoent} ->
+        []
+
+      {:error, reason} ->
+        raise File.Error, reason: reason, action: "list directory", path: roms_dir()
+    end
   end
 
-  defp rom_path(name), do: Path.join([:code.priv_dir(:gb_emu), "roms", name])
+  defp rom_path(name), do: Path.join(roms_dir(), name)
+
+  defp roms_dir do
+    Application.get_env(:gb_emu, :roms_dir) || Path.join(:code.priv_dir(:gb_emu), "roms")
+  end
 
   defp default_rom(_roms, %{game_path: game_path}) when is_binary(game_path) do
     {"Uploaded ROM", game_path}
