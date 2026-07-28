@@ -18,6 +18,15 @@ defmodule GbEmuWeb.EmulatorLiveTest do
     assert html =~ "deleted after 2 hours"
   end
 
+  test "renders a visible GitHub repository link", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(
+             view,
+             "#github-repository-link[href='https://github.com/douglascorrea/gb_elixir'][target='_blank'][rel~='noopener']"
+           )
+  end
+
   test "renders an accessible debugger workbench with disabled no-ROM controls", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
