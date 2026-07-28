@@ -597,13 +597,15 @@ defmodule GbEmuWeb.EmulatorLive do
       <div class="min-h-screen bg-[#10171d] px-3 py-6 text-slate-200 select-none sm:px-5 lg:px-8">
         <header
           id="site-header"
-          class="relative mx-auto mb-6 flex w-full max-w-[1540px] flex-col items-center gap-4 sm:min-h-16 sm:justify-center"
+          class={[
+            "relative mx-auto mb-6 flex w-full max-w-[1540px] flex-col items-center gap-4 sm:min-h-16 sm:justify-center"
+          ]}
         >
-          <div class="text-center">
-            <h1 class="mb-1 text-2xl font-bold tracking-wide text-lime-300">
-              Game Boy <span class="font-normal text-slate-400">on the BEAM</span>
+          <div class={["text-center"]}>
+            <h1 class={["mb-1 text-2xl font-bold tracking-wide text-lime-300"]}>
+              Game Boy <span class={["font-normal text-slate-400"]}>on the BEAM</span>
             </h1>
-            <p class="text-sm text-slate-400">
+            <p class={["text-sm text-slate-400"]}>
               DMG emulated in Elixir &middot; frames streamed over LiveView
             </p>
           </div>
@@ -613,9 +615,11 @@ defmodule GbEmuWeb.EmulatorLive do
             href="https://github.com/douglascorrea/gb_elixir"
             target="_blank"
             rel="noopener noreferrer"
-            class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-xs font-semibold tracking-wide text-slate-200 shadow-lg shadow-black/20 transition duration-200 hover:-translate-y-0.5 hover:border-lime-400/60 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2 sm:hover:-translate-y-[calc(50%+0.125rem)]"
+            class={[
+              "inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-xs font-semibold tracking-wide text-slate-200 shadow-lg shadow-black/20 transition duration-200 hover:-translate-y-0.5 hover:border-lime-400/60 hover:text-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2 sm:hover:-translate-y-[calc(50%+0.125rem)]"
+            ]}
           >
-            <.icon name="hero-code-bracket" class="size-4" /> View source on GitHub
+            <.icon name="hero-code-bracket" class={["size-4"]} /> View source on GitHub
           </a>
         </header>
 
