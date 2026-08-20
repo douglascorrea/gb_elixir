@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$repo_root"
+
+build_path=${MIX_BUILD_PATH:-_build/${MIX_ENV:-dev}}
+runner_beam="$build_path/lib/gb_emu/ebin/Elixir.Mix.Tasks.GbEmu.Exercises.beam"
+
+# The first run compiles the complete reference project. Later runs reuse the
+# runner beam so Mix does not compile intentionally locked exercise source.
+if [ "${1:-}" = "start" ] || [ ! -f "$runner_beam" ]; then
+  exec mix gb_emu.exercises "$@"
+fi
+
+exec mix run --no-compile --no-deps-check --no-start \
+  -e 'Mix.Tasks.GbEmu.Exercises.run(System.argv())' -- "$@"

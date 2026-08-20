@@ -138,6 +138,30 @@ Start with [docs/README.md](docs/README.md) for a guided tour or
 [docs/debugger.md](docs/debugger.md) to follow an instruction from assembly,
 through CPU/memory/PPU execution, to its exact Elixir source lines.
 
+## GBEmulings Learning Track
+
+This repository also includes a Rustlings/Ziggerlings-style curriculum in
+[exercises/](exercises/). It breaks the emulator into 110 granular exercises,
+from Elixir bitwise basics through CPU, bus, PPU, OTP, LiveView, debugger,
+upload storage, and release work.
+
+The runner creates and switches exercise branches automatically. Each branch
+contains one real implementation replaced by a `TODO`, a failing test, and the
+passing work carried forward from every previous exercise. Later targets remain
+locked until their turn; `check` hydrates them only inside a disposable
+validation worktree so they do not obscure the current exercise.
+
+```sh
+./gbemulings start
+# Implement the printed TODO.
+./gbemulings check
+./gbemulings next
+```
+
+`next` stages and commits the dedicated exercise branch before creating the
+next one. See the [complete learner workflow](exercises/README.md) before
+starting.
+
 ## Tests
 
 ```sh

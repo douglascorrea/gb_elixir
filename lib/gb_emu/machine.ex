@@ -50,7 +50,7 @@ defmodule GbEmu.Machine do
 
     serial_selector =
       if is_nil(gb.serial_cycles) do
-        "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do: gb"
+        "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do:"
       else
         "defp step_serial(gb, cycles) do"
       end
@@ -114,17 +114,7 @@ defmodule GbEmu.Machine do
   def set_button(gb, button, down) do
     import Bitwise
 
-    {field, bit} =
-      case button do
-        :right -> {:dpad, 0x01}
-        :left -> {:dpad, 0x02}
-        :up -> {:dpad, 0x04}
-        :down -> {:dpad, 0x08}
-        :a -> {:btns, 0x01}
-        :b -> {:btns, 0x02}
-        :select -> {:btns, 0x04}
-        :start -> {:btns, 0x08}
-      end
+    {field, bit} = button_location(button)
 
     current = Map.fetch!(gb, field)
 
@@ -133,6 +123,19 @@ defmodule GbEmu.Machine do
       %{gb | if_: gb.if_ ||| 0x10}
     else
       Map.put(gb, field, current &&& bnot(bit))
+    end
+  end
+
+  defp button_location(button) do
+    case button do
+      :right -> {:dpad, 0x01}
+      :left -> {:dpad, 0x02}
+      :up -> {:dpad, 0x04}
+      :down -> {:dpad, 0x08}
+      :a -> {:btns, 0x01}
+      :b -> {:btns, 0x02}
+      :select -> {:btns, 0x04}
+      :start -> {:btns, 0x08}
     end
   end
 

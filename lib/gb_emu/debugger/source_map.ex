@@ -247,7 +247,7 @@ defmodule GbEmu.Debugger.SourceMap do
     timer: ["def step(gb, cycles) do"],
     machine: [
       "def step_instruction(%{debug_trace?: true} = gb) do",
-      "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do: gb",
+      "defp step_serial(%{serial_cycles: nil} = gb, _cycles), do:",
       "defp step_serial(gb, cycles) do"
     ]
   }

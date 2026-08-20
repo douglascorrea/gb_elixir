@@ -14,6 +14,7 @@ front end that draws frames and forwards key presses.
 | [ppu.md](ppu.md) | LCD modes, scanline rendering, sprites, palettes, and frame assembly |
 | [timing-and-io.md](timing-and-io.md) | DIV/TIMA, joypad matrix, and serial-port behavior |
 | [frontend.md](frontend.md) | Supervised emulator sessions, LiveView frame streaming, and canvas input |
+| [../exercises/README.md](../exercises/README.md) | GBEmulings progressive exercise track |
 
 ## Where Things Live
 

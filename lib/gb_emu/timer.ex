@@ -13,12 +13,14 @@ defmodule GbEmu.Timer do
     gb = %{gb | div_counter: gb.div_counter + cycles &&& 0xFFFF}
 
     if (gb.tac &&& 0x04) != 0 do
-      period = elem(@periods, gb.tac &&& 0x03)
+      period = timer_period(gb.tac)
       tick_tima(%{gb | tima_acc: gb.tima_acc + cycles}, period)
     else
       gb
     end
   end
+
+  defp timer_period(tac), do: elem(@periods, tac &&& 0x03)
 
   defp tick_tima(gb, period) do
     if gb.tima_acc >= period do
